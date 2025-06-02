@@ -1,0 +1,23 @@
+# CORE
+openai>=1.3.9
+python-dotenv
+pandas
+tqdm
+lxml
+psycopg2-binary
+supabase-py
+
+# STREAMLIT + GRAFICOS
+streamlit
+plotly
+
+# LANGCHAIN + GPT
+langchain
+langchain-openai
+
+# WEB SCRAPING
+selenium
+webdriver-manager
+
+# FECHAS Y LOCALES
+babel

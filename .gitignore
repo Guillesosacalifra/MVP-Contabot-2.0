@@ -1,0 +1,30 @@
+# 🔒 Seguridad
+.env
+*.key
+*.pem
+*.sqlite
+*.db
+*.log
+
+# ⚙️ Python
+__pycache__/
+*.pyc
+*.pyo
+
+# ⚙️ Entornos virtuales
+.venv/
+env/
+
+# 🧪 Test y dumps temporales
+*.jsonl
+*.zip
+*.bak
+
+# 📁 Frontend
+node_modules/
+dist/
+.build/
+
+# 💻 Sistema operativo
+.DS_Store
+Thumbs.db

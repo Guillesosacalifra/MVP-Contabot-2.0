@@ -1,0 +1,77 @@
+import os
+import re
+import pandas as pd
+from supabase import create_client
+from dotenv import load_dotenv
+from backend.utils import obtener_numero_mes, obtener_nombre_mes
+
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_API_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def exportar_json_mes_desde_supabase(mes: str, anio: int):
+    print(f"🔄 Descargando datos desde Supabase para {mes} {anio}...")
+
+    # Descargar todos los datos desde la tabla `datalogic_2025`
+    response = supabase.table("datalogic_2025").select("*").execute()
+    df = pd.DataFrame(response.data)
+
+    # Normalización y filtrado
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+    df = df[(df["fecha"].dt.month == obtener_numero_mes(mes)) & (df["fecha"].dt.year == anio)]
+
+    if df.empty:
+        raise ValueError(f"❌ No hay datos para {mes} {anio} en Supabase.")
+
+    df["ruc"] = df["ruc"].astype(str).str.strip()
+    df["monto_item"] = pd.to_numeric(df["monto_item"], errors="coerce")
+    df["fecha"] = df["fecha"].dt.strftime("%Y-%m-%d")
+
+    salida_json = f"data/datalogic/datalogic_{mes}_{anio}.json"
+
+    os.makedirs(os.path.dirname(salida_json), exist_ok=True)
+    df.to_json(salida_json, orient="records", force_ascii=False, indent=2)
+
+    print(f"✅ Exportado correctamente a {salida_json}")
+
+
+
+def exportar_xls_dgi_a_json(path_xls: str):
+    # Extraer mes y año del nombre del archivo usando regex
+    nombre_archivo = os.path.basename(path_xls)
+    match = re.search(r"Periodo-(\d{4})_(\d{1,2})_", nombre_archivo)
+    if not match:
+        raise ValueError(f"❌ No se pudo extraer el año y mes del nombre: {nombre_archivo}")
+
+    anio = int(match.group(1))
+    mes_num = int(match.group(2))
+    mes_nombre = obtener_nombre_mes(mes_num)  # ejemplo: "enero"
+
+    # Leer archivo Excel
+    df = pd.read_excel(path_xls, skiprows=9)
+
+    # Normalizamos los nombres de columnas para trabajar con nombres consistentes
+    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+
+    # Mostramos columnas para debugging
+    print("🧾 Columnas normalizadas:", df.columns.tolist())
+
+    df["rut_emisor"] = df["rut_emisor"].astype(str).str.strip()
+    df["monto_total"] = pd.to_numeric(df["monto_total"], errors="coerce")
+    df["monto_neto"] = pd.to_numeric(df["monto_neto"], errors="coerce")
+
+    df["mes"] = mes_nombre
+    df["anio"] = anio
+    
+    salida_json = f"data/dgi/dgi_{mes_nombre}_{anio}.json"
+    os.makedirs(os.path.dirname(salida_json), exist_ok=True)
+    df.to_json(salida_json, orient="records", force_ascii=False, indent=2)
+
+    print(f"✅ Exportado correctamente a {salida_json}")
+
+
+
+
