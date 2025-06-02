@@ -21,3 +21,8 @@ webdriver-manager
 
 # FECHAS Y LOCALES
 babel
+
+# FASTAPI
+fastapi
+uvicorn
+
