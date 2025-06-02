@@ -5,7 +5,7 @@ pandas
 tqdm
 lxml
 psycopg2-binary
-supabase-py
+supabase
 
 # STREAMLIT + GRAFICOS
 streamlit
