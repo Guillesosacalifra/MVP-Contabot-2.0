@@ -67,6 +67,7 @@ def subir_dataframe(df: pd.DataFrame, tabla_nombre: str) -> None:
     Si no existe, se crea automáticamente. Si ya existe, se agrega la información.
     Muestra advertencia si ya existen registros del mismo mes y año.
     """
+    print("⬆️ Subiendo a Supabase...")
     if df.empty:
         print("⚠️ DataFrame vacío, no se sube nada.")
         return
@@ -126,9 +127,11 @@ def subir_dataframe(df: pd.DataFrame, tabla_nombre: str) -> None:
 
 def obtener_historico(años: list[int]) -> pd.DataFrame:
     """
-    Descarga datos históricos desde Supabase para aplicar la red de pescadores.
-    Devuelve un DataFrame con proveedor, descripicion y categoría.
+    Descarga datos históricos verificados desde Supabase para aplicar la red de pescadores.
+    Devuelve un DataFrame con proveedor, descripción, categoría y año.
     """
+    print("🧠 Descargando histórico desde Supabase...")
+    
     frames = []
 
     for año in años:
@@ -136,7 +139,10 @@ def obtener_historico(años: list[int]) -> pd.DataFrame:
         print(f"🔎 Consultando tabla {tabla}...")
 
         try:
-            res = supabase.table(tabla).select("proveedor, descripcion, categoria").execute()
+            res = supabase.table(tabla) \
+                .select("proveedor, descripcion, categoria, verificado") \
+                .eq("verificado", True) \
+                .execute()
             datos = res.data
             if datos:
                 df = pd.DataFrame(datos)
@@ -144,7 +150,7 @@ def obtener_historico(años: list[int]) -> pd.DataFrame:
                 frames.append(df)
         except Exception as e:
             print(f"⚠️ No se pudo consultar la tabla {tabla}: {e}")
-
+    
     if frames:
         return pd.concat(frames, ignore_index=True)
     else:

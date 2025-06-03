@@ -29,12 +29,12 @@ def actualizar_categoria(data: CategoriaEditada):
 
         # Actualizar categoría en datalogic_2025
         supabase.table("datalogic_2025").update({
-            "categoria": data.nueva_categoria
+            "categoria": data.nueva_categoria,
+            "verificado": True  # Marca como verificado al actualizar manualmente
         }).eq("id", data.id).execute()
 
         # Insertar en cambios_en_categorias
         supabase.table("cambios_en_categorias").insert({
-            # "id": data.id,
             "fecha_cambio": datetime.now().isoformat(),
             "categoria_anterior": categoria_anterior,
             "categoria_nueva": data.nueva_categoria,
@@ -42,7 +42,7 @@ def actualizar_categoria(data: CategoriaEditada):
             "usuario": data.usuario
         }).execute()
 
-        return {"status": "ok", "mensaje": "Categoría actualizada y cambio registrado"}
+        return {"status": "ok", "mensaje": "Categoría actualizada, verificada y cambio registrado"}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en el servidor: {e}")

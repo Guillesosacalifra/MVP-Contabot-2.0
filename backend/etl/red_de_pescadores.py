@@ -29,29 +29,65 @@ def es_similar(a: str, b: str, umbral: float = 0.9) -> bool:
     b_norm = normalizar_texto(b)
     return SequenceMatcher(None, a_norm, b_norm).ratio() >= umbral
 
-def aplicar_red_de_pescadores(df_nuevos: pd.DataFrame, historico: pd.DataFrame) -> pd.DataFrame:
+def preparar_historico_para_red(df_historico: pd.DataFrame) -> pd.DataFrame:
     """
-    Recorre cada fila de df_nuevos, y si encuentra en el histórico una coincidencia por
-    proveedor + item (con similitud), asigna la categoría del histórico y marca como 'por_historial'.
+    Prepara el histórico: filtra solo verificados y normaliza campos necesarios.
     """
+    df = df_historico.copy()
+    df = df[df["verificado"] == True]
+
+    df["proveedor_norm"] = df["proveedor"].apply(normalizar_texto)
+    df["descripcion_norm"] = df["descripcion"].apply(normalizar_texto)
+
+    return df
+
+
+def aplicar_red_de_pescadores(df_nuevos: pd.DataFrame, historico_completo: pd.DataFrame) -> pd.DataFrame:
+    """
+    Asigna categorías desde el histórico a nuevos registros si son suficientemente similares.
+    Los categorizados automáticamente se marcan como verificado = True.
+    """
+    print("🎣 Aplicando red de pescadores...")
+
+    historico = preparar_historico_para_red(historico_completo)
     resultados = []
+
     for _, row in df_nuevos.iterrows():
         proveedor_n = normalizar_texto(row.get("proveedor", ""))
         descripcion_n = normalizar_texto(row.get("descripcion", ""))
-        match = historico[
-            (historico["proveedor_norm"] == proveedor_n)
-        ].copy()
 
-        match["similitud"] = match["descripcion_norm"].apply(lambda x: SequenceMatcher(None, x, descripcion_n).ratio())
-        match = match[match["similitud"] >= 0.9]
+        posibles = historico[historico["proveedor_norm"] == proveedor_n].copy()
+        posibles["similitud"] = posibles["descripcion_norm"].apply(
+            lambda x: SequenceMatcher(None, x, descripcion_n).ratio()
+        )
+        posibles = posibles[posibles["similitud"] >= 0.9]
 
-        if not match.empty:
-            mejor_match = match.sort_values("similitud", ascending=False).iloc[0]
-            row["categoria"] = mejor_match["categoria"]
+        if not posibles.empty:
+            mejor = posibles.sort_values("similitud", ascending=False).iloc[0]
+            row["categoria"] = mejor["categoria"]
             row["origen"] = "por_historial"
+            row["verificado"] = True
         else:
             row["origen"] = "nueva"
+            row["verificado"] = False
 
         resultados.append(row)
 
-    return pd.DataFrame(resultados)
+    df_resultado = pd.DataFrame(resultados)
+
+    check_verde = df_resultado[df_resultado["origen"] == "por_historial"]
+    check_amarillo = df_resultado[df_resultado["origen"] == "nueva"]
+
+    print(f"✅ Categorizados automáticamente por historial: {len(check_verde)}")
+    print(f"🟨 Nuevos a clasificar por IA: {len(check_amarillo)}")
+
+    # Visualizar primeros casos
+    print("\n🧾 Ejemplos categorizados:")
+    print(check_verde[["proveedor", "descripcion", "categoria"]].head(5))
+
+    print("\n❓ Ejemplos nuevos (sin categoría):")
+    print(check_amarillo[["proveedor", "descripcion"]].head(5))
+    df_resultado.to_csv("data/resultados/red_de_pescadores_resultado.csv", index=False)
+
+    # return df_resultado
+

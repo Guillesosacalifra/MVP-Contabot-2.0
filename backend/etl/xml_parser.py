@@ -1,5 +1,6 @@
 # etl/xml_parser.py
 import os
+import pandas as pd
 import zipfile
 import tempfile
 import shutil
@@ -43,6 +44,7 @@ def limpiar_xmls_en_carpeta(carpeta_descargas: str) -> None:
     """
     Limpia todos los XML en la carpeta: elimina caracteres especiales y encapsula correctamente el contenido.
     """
+    print("🧼 Limpiando XMLs...")
     for nombre_archivo in tqdm(os.listdir(carpeta_descargas), desc="🔧 Limpiando XMLs"):
         if nombre_archivo.lower().endswith(".xml"):
             ruta_original = os.path.join(carpeta_descargas, nombre_archivo)
@@ -61,12 +63,14 @@ def limpiar_xmls_en_carpeta(carpeta_descargas: str) -> None:
             with open(ruta_original, "w", encoding="utf-8") as f:
                 f.write(contenido_limpio)
 
+
 def parsear_xmls_en_carpeta(carpeta_descargas: str) -> List[Dict]:
     """
     Parsea los archivos XML en la carpeta, extrayendo ítems de facturas con metadatos completos.
     Devuelve una lista de diccionarios listos para subir a Supabase.
     Elimina los archivos XML ya parseados
     """
+    print("📂 Cargando XMLs desde carpeta local...")
     ns = {"dgicfe": "http://cfe.dgi.gub.uy"}
     registros = []
     archivos_xml = [f for f in os.listdir(carpeta_descargas) if f.lower().endswith(".xml")]
@@ -127,7 +131,6 @@ def parsear_xmls_en_carpeta(carpeta_descargas: str) -> List[Dict]:
                     "archivo": archivo,
                 })
 
-
             # ✅ Eliminar solo si se parseó correctamente
             os.remove(ruta)
 
@@ -135,5 +138,9 @@ def parsear_xmls_en_carpeta(carpeta_descargas: str) -> List[Dict]:
             print(f"❌ Error procesando {archivo}: {e}")
 
     print(f"✅ {len(registros)} ítems extraídos desde {len(archivos_xml)} archivos XML.")
-    return registros
 
+    df_nuevos = pd.DataFrame(registros)
+    df_nuevos["rowid"] = df_nuevos.index + 1
+    print(f"📄 Gastos nuevos detectados: {len(df_nuevos)}")
+
+    return df_nuevos

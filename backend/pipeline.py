@@ -8,10 +8,10 @@ from backend.config import get_db_path, get_datalogic_credentials, get_carpeta_d
 from backend.etl.datalogic_downloader import descargar_xml_cfe, descargar_y_descomprimir
 import pandas as pd
 import os
-from backend.etl.xml_parser import parsear_xmls_en_carpeta
 from backend.etl.supabase_client import obtener_historico
 from backend.etl.red_de_pescadores import normalizar_texto, aplicar_red_de_pescadores
 
+''' descargo los datos de datalogic, los limpio, los parseo, y separo los que puedo clasificar con la red de pescadores y los que debo clasificar con IA '''
 def probar_red_de_pescadores():
     
     carpeta = get_carpeta_descarga()
@@ -19,47 +19,15 @@ def probar_red_de_pescadores():
        
     mes, anio = descargar_y_descomprimir(carpeta, creds)
 
-    print("🧼 Limpiando XMLs...")
     limpiar_xmls_en_carpeta(carpeta)
 
-    print("📂 Cargando XMLs desde carpeta local...")
-    registros = parsear_xmls_en_carpeta("data/datalogic/archivos-XML")
-    if not registros:
-        print("❌ No se encontraron XMLs.")
-        return
-
-    df_nuevos = pd.DataFrame(registros)
-    df_nuevos["rowid"] = df_nuevos.index + 1
-
-    print(f"📄 Gastos nuevos detectados: {len(df_nuevos)}")
-
-    print("🧠 Descargando histórico desde Supabase...")
+    df_nuevos = parsear_xmls_en_carpeta("data/datalogic/archivos-XML")
+    
     historico = obtener_historico(años=[2025])
-    if historico.empty:
-        print("⚠️ Histórico vacío, no se aplicará la red.")
-        return
+    
+    aplicar_red_de_pescadores(df_nuevos, historico)
 
-    historico["proveedor_norm"] = historico["proveedor"].apply(normalizar_texto)
-    historico["descripcion_norm"] = historico["descripcion"].apply(normalizar_texto)
-
-    print("🎣 Aplicando red de pescadores...")
-    df_resultado = aplicar_red_de_pescadores(df_nuevos, historico)
-
-    check_verde = df_resultado[df_resultado["origen"] == "por_historial"]
-    check_amarillo = df_resultado[df_resultado["origen"] == "nueva"]
-
-    print(f"✅ Categorizados automáticamente por historial: {len(check_verde)}")
-    print(f"🟨 Nuevos a clasificar por IA: {len(check_amarillo)}")
-
-    # Visualizar primeros casos
-    print("\n🧾 Ejemplos categorizados:")
-    print(check_verde[["proveedor", "descripcion", "categoria"]].head(5))
-
-    print("\n❓ Ejemplos nuevos (sin categoría):")
-    print(check_amarillo[["proveedor", "descripcion"]].head(5))
-    df_resultado.to_csv("data/resultados/red_de_pescadores_resultado.csv", index=False)
-
-
+''' descargo los datos de datalogic, los limpio, los parseo, los clasifico y los subo a supabase '''
 def ejecutar_pipeline_completo_para_mes():
 
     carpeta = get_carpeta_descarga()
@@ -72,10 +40,6 @@ def ejecutar_pipeline_completo_para_mes():
 
     print("📄 Parseando XMLs...")
     registros = parsear_xmls_en_carpeta(carpeta)
-
-    if not registros:
-        print("❌ No se encontraron registros.")
-        return
 
     for i, r in enumerate(registros):
         r["rowid"] = i + 1
@@ -93,9 +57,9 @@ def ejecutar_pipeline_completo_para_mes():
     print(f"✅ Total ítems clasificados: {len(df_final)}")
     print(df_final[["fecha", "proveedor", "descripcion", "monto_item", "categoria"]].head())
 
-    print("⬆️ Subiendo a Supabase...")
     subir_dataframe(df_final)
 
+''' exporto los datos de datalogic y los comparo con los de la DGI '''
 def ejecutar_pipeline_comparacion():
     mes, anio, fecha_desde, fecha_hasta = obtener_rango_de_fechas_por_mes()
     print(f"🔍 Comparando datos desde {fecha_desde} hasta {fecha_hasta}")
