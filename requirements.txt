@@ -5,7 +5,7 @@ pandas==2.2.0
 tqdm==4.66.1
 lxml
 psycopg2-binary==2.9.9
-supabase==2.3.1
+supabase-py==2.0.3
 
 # STREAMLIT + GRAFICOS
 streamlit

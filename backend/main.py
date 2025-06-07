@@ -15,10 +15,22 @@ import logging
 import time
 from datetime import datetime
 import os
+import sys
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Log startup
+logger.info("Starting application...")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Current working directory: {os.getcwd()}")
 
 app = FastAPI()
 
@@ -43,14 +55,27 @@ app.add_middleware(
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start_time = time.time()
-    response = await call_next(request)
-    duration = time.time() - start_time
-    logger.info(f"{request.method} {request.url.path} - Status: {response.status_code} - Duration: {duration:.2f}s")
-    return response
+    try:
+        response = await call_next(request)
+        duration = time.time() - start_time
+        logger.info(f"{request.method} {request.url.path} - Status: {response.status_code} - Duration: {duration:.2f}s")
+        return response
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        logger.exception("Full traceback:")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Internal server error: {str(e)}",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
 
 # Exception handler
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation error: {exc.errors()}")
     return JSONResponse(
         status_code=422,
         content={"detail": exc.errors()}

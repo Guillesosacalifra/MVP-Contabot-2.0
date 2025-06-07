@@ -17,7 +17,11 @@ DATABASE_URL = os.getenv("TRANSACTION_POOLER")
 if not SUPABASE_URL or not SUPABASE_API_KEY or not DATABASE_URL:
     raise ValueError("❌ Faltan variables SUPABASE_URL, SUPABASE_API_KEY o TRANSACTION_POOLER en .env")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
+except Exception as e:
+    print(f"❌ Error inicializando cliente Supabase: {e}")
+    raise
 
 
 def crear_tabla_si_no_existe(df: pd.DataFrame, nombre_tabla: str):
