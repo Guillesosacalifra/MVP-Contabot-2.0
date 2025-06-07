@@ -29,3 +29,6 @@ uvicorn==0.24.0
 # ADDITIONAL DEPENDENCIES
 python-multipart==0.0.6
 
+# NEW DEPENDENCIES
+sqlalchemy==2.0.23
+
