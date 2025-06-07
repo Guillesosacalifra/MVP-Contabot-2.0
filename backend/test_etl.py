@@ -1,5 +1,5 @@
 from backend.etl.xml_parser import limpiar_xmls_en_carpeta, parsear_xmls_en_carpeta
-from backend.etl.data_processor import dividir_en_bloques, clasificar_lote
+from backend.etl.clasificador import dividir_en_bloques, clasificar_lote
 from backend.etl.supabase_client import subir_dataframe
 from backend.config import get_directories
 import pandas as pd

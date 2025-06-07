@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import psycopg2
 from calendar import monthrange
-
+from utils import obtener_nombre_mes
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -60,14 +60,13 @@ def crear_tabla_si_no_existe(df: pd.DataFrame, nombre_tabla: str):
 
 
 def subir_dataframe(df: pd.DataFrame, tabla_nombre: str) -> None:
-
-    
     """
-    Sube un DataFrame a Supabase. La tabla se nombra como datalogic_{año}_test.
+    Sube un DataFrame a Supabase. La tabla se nombra como {empresa}_{año}.
     Si no existe, se crea automáticamente. Si ya existe, se agrega la información.
     Muestra advertencia si ya existen registros del mismo mes y año.
     """
-    print("⬆️ Subiendo a Supabase...")
+    print(f"⬆️ Subiendo {len(df)} ítems a Supabase...")
+
     if df.empty:
         print("⚠️ DataFrame vacío, no se sube nada.")
         return
@@ -82,8 +81,11 @@ def subir_dataframe(df: pd.DataFrame, tabla_nombre: str) -> None:
     anio = df["fecha"].dt.year.mode()[0]
     mes = df["fecha"].dt.month.mode()[0]
 
-    if not tabla_nombre:
-        tabla_nombre = f"datalogic_{anio}"
+    df["año"] = anio
+    df["mes"] = obtener_nombre_mes(mes)
+
+    if "verificado" not in df.columns:
+        df["verificado"] = False
 
     # Elimino id relativo. Supabase debe tener su propio ID serial primary key
     if "rowid" in df.columns:
@@ -152,6 +154,11 @@ def obtener_historico(años: list[int]) -> pd.DataFrame:
             print(f"⚠️ No se pudo consultar la tabla {tabla}: {e}")
     
     if frames:
-        return pd.concat(frames, ignore_index=True)
+        df_final = pd.concat(frames, ignore_index=True)
+        print(f"📦 Total de registros históricos verificados: {len(df_final)}")
+        return df_final
     else:
+        print("⚠️ No se encontraron registros históricos verificados.")
         return pd.DataFrame()
+
+

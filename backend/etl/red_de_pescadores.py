@@ -60,34 +60,33 @@ def aplicar_red_de_pescadores(df_nuevos: pd.DataFrame, historico_completo: pd.Da
         posibles["similitud"] = posibles["descripcion_norm"].apply(
             lambda x: SequenceMatcher(None, x, descripcion_n).ratio()
         )
-        posibles = posibles[posibles["similitud"] >= 0.9]
+        posibles = posibles[posibles["similitud"] >= 0.70]
 
         if not posibles.empty:
             mejor = posibles.sort_values("similitud", ascending=False).iloc[0]
             row["categoria"] = mejor["categoria"]
-            row["origen"] = "por_historial"
+            # row["origen"] = "por_historial"
             row["verificado"] = True
         else:
-            row["origen"] = "nueva"
+            # row["origen"] = "nueva"
             row["verificado"] = False
 
         resultados.append(row)
 
     df_resultado = pd.DataFrame(resultados)
 
-    check_verde = df_resultado[df_resultado["origen"] == "por_historial"]
-    check_amarillo = df_resultado[df_resultado["origen"] == "nueva"]
+    df_verificados = df_resultado[df_resultado["verificado"] == True].copy()
+    df_no_verificados = df_resultado[df_resultado["verificado"] == False].copy()
 
-    print(f"✅ Categorizados automáticamente por historial: {len(check_verde)}")
-    print(f"🟨 Nuevos a clasificar por IA: {len(check_amarillo)}")
+    print(f"✅ Reconocidos y categorizados automáticamente por historial: {len(df_verificados)}")
+    print(f"🟨 Nuevos a clasificar por modelo IA: {len(df_no_verificados)}")
 
-    # Visualizar primeros casos
-    print("\n🧾 Ejemplos categorizados:")
-    print(check_verde[["proveedor", "descripcion", "categoria"]].head(5))
+    # print("\n🧾 Ejemplos categorizados:")
+    # print(df_verificados[["proveedor", "descripcion", "categoria"]].head(10))
+    # print("\n❓ Ejemplos nuevos (sin categoría):")
+    # print(df_no_verificados[["proveedor", "descripcion"]].head(10))
 
-    print("\n❓ Ejemplos nuevos (sin categoría):")
-    print(check_amarillo[["proveedor", "descripcion"]].head(5))
     df_resultado.to_csv("data/resultados/red_de_pescadores_resultado.csv", index=False)
 
-    # return df_resultado
+    return df_verificados, df_no_verificados
 

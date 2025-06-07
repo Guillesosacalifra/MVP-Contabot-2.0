@@ -73,12 +73,18 @@ def procesar_comparacion_dgi(path_json_datalogic: str, path_json_dgi: str) -> pd
     return comparacion
 
 
-def comparar_datalogic_vs_dgi(mes: str, anio: int):
-    mes_lower = mes.lower()
+def comparar_datalogic_vs_dgi(mes: str, anio: int, empresa: str):
+    """
+    Compara los datos de Datalogic con los de DGI.
+    """
+    print(f"🔍 Comparando datos de {empresa} con DGI para {mes}/{anio}")
+    
+    # Obtener datos de Datalogic
+    tabla = f"{empresa}_{anio}"
 
     # Rutas a los archivos JSON
-    path_datalogic = f"data/datalogic/{mes_lower}_{anio}.json"
-    path_dgi = f"data/dgi/dgi_{mes_lower}_{anio}.json"
+    path_datalogic = f"data/datalogic/{mes.lower()}_{anio}.json"
+    path_dgi = f"data/dgi/dgi_{mes.lower()}_{anio}.json"
 
     # Verificación
     if not os.path.exists(path_datalogic):
@@ -86,13 +92,12 @@ def comparar_datalogic_vs_dgi(mes: str, anio: int):
     if not os.path.exists(path_dgi):
         raise FileNotFoundError(f"❌ Falta el archivo: {path_dgi}")
 
-    print(f"🔄 Procesando comparación para {mes_lower} {anio}...")
+    print(f"🔄 Procesando comparación para {mes.lower()} {anio}...")
 
     # Procesar
     df = procesar_comparacion_dgi(path_datalogic, path_dgi)
     df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.strftime("%Y-%m-%d")
 
-    tabla = f"comparacion_{anio}"
     subir_dataframe(df, tabla_nombre=tabla)
 
     print(f"✅ Comparación subida correctamente a Supabase en la tabla {tabla}")

@@ -11,23 +11,23 @@ from backend.api.actualizar_categoria import router as actualizar_router
 
 app = FastAPI()
 
+# Configure CORS for your frontend domain
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Podés restringir a tu dominio si querés
+    allow_origins=["https://www.contia.dev"],  # Your frontend domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Registrar rutas
+# Register routes
 app.include_router(actualizar_router, prefix="/api")
 
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
-
-
+# Keep the existing code for local development
 if __name__ == "__main__":
-    
-    probar_red_de_pescadores()
+    ejecutar_pipeline_completo_para_mes()
+    # probar_red_de_pescadores()

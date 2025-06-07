@@ -1,11 +1,11 @@
 # CORE
-openai>=1.3.9
-python-dotenv
-pandas
-tqdm
+openai==1.3.5
+python-dotenv==1.0.0
+pandas==2.1.3
+tqdm==4.66.1
 lxml
-psycopg2-binary
-supabase
+psycopg2-binary==2.9.9
+supabase==2.0.3
 
 # STREAMLIT + GRAFICOS
 streamlit
@@ -16,13 +16,16 @@ langchain
 langchain-openai
 
 # WEB SCRAPING
-selenium
-webdriver-manager
+selenium==4.15.2
+webdriver-manager==4.0.1
 
 # FECHAS Y LOCALES
 babel
 
 # FASTAPI
-fastapi
-uvicorn
+fastapi==0.104.1
+uvicorn==0.24.0
+
+# ADDITIONAL DEPENDENCIES
+python-multipart==0.0.6
 

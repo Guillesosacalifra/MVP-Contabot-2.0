@@ -44,8 +44,7 @@ def limpiar_xmls_en_carpeta(carpeta_descargas: str) -> None:
     """
     Limpia todos los XML en la carpeta: elimina caracteres especiales y encapsula correctamente el contenido.
     """
-    print("🧼 Limpiando XMLs...")
-    for nombre_archivo in tqdm(os.listdir(carpeta_descargas), desc="🔧 Limpiando XMLs"):
+    for nombre_archivo in tqdm(os.listdir(carpeta_descargas), desc="🧼 Limpiando XMLs"):
         if nombre_archivo.lower().endswith(".xml"):
             ruta_original = os.path.join(carpeta_descargas, nombre_archivo)
 
@@ -137,10 +136,9 @@ def parsear_xmls_en_carpeta(carpeta_descargas: str) -> List[Dict]:
         except Exception as e:
             print(f"❌ Error procesando {archivo}: {e}")
 
-    print(f"✅ {len(registros)} ítems extraídos desde {len(archivos_xml)} archivos XML.")
+    print(f"✅ {len(registros)} gastos nuevos extraídos de {len(archivos_xml)} archivos XML.")
 
     df_nuevos = pd.DataFrame(registros)
     df_nuevos["rowid"] = df_nuevos.index + 1
-    print(f"📄 Gastos nuevos detectados: {len(df_nuevos)}")
 
     return df_nuevos

@@ -33,7 +33,7 @@ def get_datalogic_credentials():
         "url_login": os.getenv("URL_DATALOGIC"),
         "usuario": os.getenv("USUARIO_DATALOGIC"),
         "contrasena": os.getenv("CLAVE_DATALOGIC"),
-        "empresa": "REDOSRL - REDOMON URUGUAY SRL"
+        "empresa": os.getenv("EMPRESA_DATALOGIC")
     }
 
 # Locale para español (depende del sistema operativo)

@@ -44,7 +44,7 @@ def obtener_numero_mes(mes: str) -> int:
 
 def obtener_nombre_mes(mes: int) -> str:
     nombres = [
-        "enero", "febrero", "marzo", "abril", "mayo", "junio",
-        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
     ]
     return nombres[mes - 1]

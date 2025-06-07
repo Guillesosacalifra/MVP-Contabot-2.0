@@ -9,6 +9,7 @@ import shutil
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -21,6 +22,8 @@ from backend.etl.xml_parser import descomprimir_archivos_zip_en  # definiremos e
 def descargar_y_descomprimir(carpeta, creds):
 
     mes, anio, fecha_desde, fecha_hasta = obtener_rango_de_fechas_por_mes()
+    empresa = input("📆 Ingresá el nombre de la EMPRESA (ej. NIKE): ").strip().lower()
+
     print(f"📥 Buscando XMLs desde {fecha_desde} hasta {fecha_hasta}...")
     
     descargar_xml_cfe(
@@ -34,7 +37,7 @@ def descargar_y_descomprimir(carpeta, creds):
     )
 
     descomprimir_archivos_zip_en(carpeta)
-    return mes, anio
+    return mes, anio, empresa
 
 def esperar_descarga_completa(carpeta, timeout=60):
     """
@@ -83,7 +86,7 @@ def descargar_xml_cfe(carpeta_descarga, usuario, contrasena, empresa, url_login,
 
     options = webdriver.ChromeOptions()
     options.add_experimental_option("prefs", prefs)
-    options.add_argument("--headless")  # Mantenelo comentado para debug visual
+    # options.add_argument("--headless")  # Mantenelo comentado para debug visual
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--no-sandbox")
@@ -99,33 +102,52 @@ def descargar_xml_cfe(carpeta_descarga, usuario, contrasena, empresa, url_login,
 
         # 🔹 Paso: Login
         driver.get(url_login)
-        campo_usuario = wait.until(EC.presence_of_element_located((By.ID, "vUSUARIO")))
-        campo_usuario.clear()
-        campo_usuario.send_keys(usuario)
-        time.sleep(0.5)
 
-        campo_contra = wait.until(EC.presence_of_element_located((By.ID, "vPASSWORD")))
+        campo_usuario = wait.until(EC.element_to_be_clickable((By.ID, "vUSUARIO")))
+        campo_usuario.clear()
+        campo_usuario.click()
+        campo_usuario.send_keys(usuario)
+
+        campo_contra = wait.until(EC.element_to_be_clickable((By.ID, "vPASSWORD")))
         campo_contra.clear()
+        campo_contra.click()
         campo_contra.send_keys(contrasena)
 
         boton_login = wait.until(EC.element_to_be_clickable((By.ID, "BTNUSUARIOLOGIN_LOGIN")))
         driver.execute_script("gx.evt.execEvt('', false, \"E'USUARIOLOGIN_LOGIN'.\", arguments[0]);", boton_login)
+
         print("✅ Login exitoso")
 
         # 🔹 Paso: Selección de empresa
-        dropdown = wait.until(EC.presence_of_element_located((By.ID, "vEMPRESA")))
-        time.sleep(0.5)
-        driver.execute_script(f"""
-            const select = arguments[0];
-            select.value = '{empresa}';
-            select.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            select.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-        """, dropdown)
+        try:
+            # Intentar encontrar el dropdown de empresa
+            dropdown = WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((By.ID, "vEMPRESA"))
+            )
+            
+            print("🔹 Se requiere seleccionar empresa.")
+            dropdown.click()
+            time.sleep(1)
 
-        boton_empresa = wait.until(EC.element_to_be_clickable((By.ID, "BTNEMPRESALOGIN_CONTINUAR")))
-        driver.execute_script("gx.evt.execEvt('', false, \"E'EMPRESALOGIN_CONTINUAR'.\", arguments[0]);", boton_empresa)
-        print(f"🚀 Empresa seleccionada: {empresa}")
-        time.sleep(0.5)
+            driver.execute_script(f"""
+                const select = arguments[0];
+                select.value = '{empresa}';
+                select.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                select.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+            """, dropdown)
+
+            boton_empresa = WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable((By.ID, "BTNEMPRESALOGIN_CONTINUAR"))
+            )
+            boton_empresa.click()
+            driver.execute_script("gx.evt.execEvt('', false, \"E'EMPRESALOGIN_CONTINUAR'.\", arguments[0]);", boton_empresa)
+
+            print(f"🚀 Empresa seleccionada: {empresa}")
+            time.sleep(0.5)
+
+        except TimeoutException:
+            # No apareció el dropdown de empresa: continuar normalmente
+            print("ℹ️ No se requiere selección de empresa.")
 
         # 🔹 Paso: (opcional) Cambio de empresa
         try:

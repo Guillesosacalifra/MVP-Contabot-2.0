@@ -12,11 +12,11 @@ SUPABASE_KEY = os.getenv("SUPABASE_API_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-def exportar_json_mes_desde_supabase(mes: str, anio: int):
+def exportar_json_mes_desde_supabase(mes: str, anio: int, empresa: str):
     print(f"🔄 Descargando datos desde Supabase para {mes} {anio}...")
 
     # Descargar todos los datos desde la tabla `datalogic_2025`
-    response = supabase.table("datalogic_2025").select("*").execute()
+    response = supabase.table("{empresa}_{anio}}").select("*").execute()
     df = pd.DataFrame(response.data)
 
     # Normalización y filtrado
@@ -71,6 +71,32 @@ def exportar_xls_dgi_a_json(path_xls: str):
     df.to_json(salida_json, orient="records", force_ascii=False, indent=2)
 
     print(f"✅ Exportado correctamente a {salida_json}")
+
+
+def exportar_a_json(mes: str, anio: int, empresa: str):
+    """
+    Exporta los datos a un archivo JSON.
+    """
+    print(f"📤 Exportando datos a JSON para {mes}/{anio}")
+    
+    # Descargar todos los datos desde la tabla
+    tabla = f"{empresa}_{anio}"
+    response = supabase.table(tabla).select("*").execute()
+    
+    if not response.data:
+        print("⚠️ No hay datos para exportar")
+        return
+    
+    # Convertir a DataFrame
+    df = pd.DataFrame(response.data)
+    
+    # Crear directorio si no existe
+    os.makedirs("data/datalogic", exist_ok=True)
+    
+    # Guardar como JSON
+    salida_json = f"data/datalogic/{empresa}_{mes}_{anio}.json"
+    df.to_json(salida_json, orient="records", date_format="iso")
+    print(f"✅ Datos exportados a {salida_json}")
 
 
 
