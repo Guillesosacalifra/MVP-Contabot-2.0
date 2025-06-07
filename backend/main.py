@@ -80,6 +80,8 @@ async def health_check():
         # Log variables (sin mostrar valores sensibles)
         for key in env_vars:
             logger.info(f"{key} is {'set' if env_vars[key] else 'not set'}")
+            if not env_vars[key]:
+                logger.error(f"Missing environment variable: {key}")
         
         missing_vars = [k for k, v in env_vars.items() if not v]
         if missing_vars:
@@ -98,15 +100,34 @@ async def health_check():
         try:
             from sqlalchemy import create_engine, text
             logger.info("Attempting database connection...")
-            engine = create_engine(os.getenv("SUPABASE_URI"))
+            db_url = os.getenv("SUPABASE_URI")
+            if not db_url:
+                raise ValueError("SUPABASE_URI is not set")
+            
+            logger.info(f"Database URL format: {'postgresql://' in db_url}")
+            engine = create_engine(db_url)
+            
             with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
+                logger.info("Executing test query...")
+                result = conn.execute(text("SELECT 1"))
+                logger.info(f"Query result: {result.scalar()}")
+            
             logger.info("Database connection successful")
             db_status = "connected"
         except Exception as e:
             error_msg = f"Database connection error: {str(e)}"
             logger.error(error_msg)
+            logger.error(f"Database URL format: {'postgresql://' in os.getenv('SUPABASE_URI', '')}")
             db_status = f"error: {str(e)}"
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": error_msg,
+                    "database_status": db_status,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
 
         return {
             "status": "ok",
@@ -118,6 +139,7 @@ async def health_check():
     except Exception as e:
         error_msg = f"Health check error: {str(e)}"
         logger.error(error_msg)
+        logger.exception("Full traceback:")
         return JSONResponse(
             status_code=500,
             content={

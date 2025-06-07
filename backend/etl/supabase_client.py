@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import psycopg2
 from calendar import monthrange
-from utils import obtener_nombre_mes
+from backend.utils import obtener_nombre_mes
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
