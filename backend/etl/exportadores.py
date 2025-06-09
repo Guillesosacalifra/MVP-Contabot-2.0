@@ -15,8 +15,9 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 def exportar_json_mes_desde_supabase(mes: str, anio: int, empresa: str):
     print(f"🔄 Descargando datos desde Supabase para {mes} {anio}...")
 
-    # Descargar todos los datos desde la tabla `datalogic_2025`
-    response = supabase.table("{empresa}_{anio}}").select("*").execute()
+    # Descargar todos los datos desde la tabla
+    tabla = f"{empresa}_{anio}"
+    response = supabase.table(tabla).select("*").execute()
     df = pd.DataFrame(response.data)
 
     # Normalización y filtrado
@@ -30,11 +31,11 @@ def exportar_json_mes_desde_supabase(mes: str, anio: int, empresa: str):
     df["monto_item"] = pd.to_numeric(df["monto_item"], errors="coerce")
     df["fecha"] = df["fecha"].dt.strftime("%Y-%m-%d")
 
-    salida_json = f"data/datalogic/datalogic_{mes}_{anio}.json"
+    # Crear directorio si no existe
+    os.makedirs(f"data/{empresa}", exist_ok=True)
+    salida_json = f"data/{empresa}/{mes}_{anio}.json"
 
-    os.makedirs(os.path.dirname(salida_json), exist_ok=True)
     df.to_json(salida_json, orient="records", force_ascii=False, indent=2)
-
     print(f"✅ Exportado correctamente a {salida_json}")
 
 

@@ -91,9 +91,11 @@ def subir_dataframe(df: pd.DataFrame, tabla_nombre: str) -> None:
     if "verificado" not in df.columns:
         df["verificado"] = False
 
-    # Elimino id relativo. Supabase debe tener su propio ID serial primary key
-    if "rowid" in df.columns:
-        df = df.drop(columns=["rowid"])
+    # Eliminar columnas que no queremos subir
+    columnas_a_eliminar = ["rowid", "id"]
+    for col in columnas_a_eliminar:
+        if col in df.columns:
+            df = df.drop(columns=[col])
 
     # Crear tabla si no existe
     crear_tabla_si_no_existe(df, tabla_nombre)
@@ -102,7 +104,6 @@ def subir_dataframe(df: pd.DataFrame, tabla_nombre: str) -> None:
     inicio_mes = datetime(anio, mes, 1).strftime("%Y-%m-%d")
     ultimo_dia = monthrange(anio, mes)[1]
     fin_mes = datetime(anio, mes, ultimo_dia).strftime("%Y-%m-%d")
-    # fin_mes = datetime(anio, mes, 28).replace(day=28).strftime("%Y-%m-%d")
 
     try:
         resultado = supabase.table(tabla_nombre).select("fecha").gte("fecha", inicio_mes).lte("fecha", fin_mes).limit(1).execute()
@@ -111,27 +112,25 @@ def subir_dataframe(df: pd.DataFrame, tabla_nombre: str) -> None:
     except Exception as e:
         print(f"ℹ️ No se pudo verificar existencia previa en {tabla_nombre}: {e}")
 
-    # Convertir fechas a string
+    # Convertir fechas a string y manejar valores nulos
     df["fecha"] = df["fecha"].dt.strftime("%Y-%m-%d")
     df = df.where(pd.notnull(df), None)
 
+    # Subir en bloques de 100
     for i in range(0, len(df), 100):
-
         bloque = df.iloc[i:i+100].to_dict(orient="records")
-        
         try:
             response = supabase.table(tabla_nombre).insert(bloque).execute()
-            print(f"✅ Subido bloque {i} a {tabla_nombre}")
+            print(f"✅ Subido bloque {i//100} a {tabla_nombre}")
         except Exception as e:
-
-            print(f"❌ Error al subir bloque {i} en tabla {tabla_nombre}: {e}")
+            print(f"❌ Error al subir bloque {i//100} en tabla {tabla_nombre}: {e}")
             print("🛑 Detalles del bloque con error:")
             for fila in bloque:
                 print(fila)
-            pd.DataFrame(bloque).to_csv(f"bloque_error_{i}.csv", index=False)
+            pd.DataFrame(bloque).to_csv(f"bloque_error_{i//100}.csv", index=False)
             break
 
-def obtener_historico(años: list[int]) -> pd.DataFrame:
+def obtener_historico(empresa: str, años: list[int]) -> pd.DataFrame:
     """
     Descarga datos históricos verificados desde Supabase para aplicar la red de pescadores.
     Devuelve un DataFrame con proveedor, descripción, categoría y año.
@@ -141,7 +140,7 @@ def obtener_historico(años: list[int]) -> pd.DataFrame:
     frames = []
 
     for año in años:
-        tabla = f"datalogic_{año}"
+        tabla = f"{empresa}_{año}"
         print(f"🔎 Consultando tabla {tabla}...")
 
         try:

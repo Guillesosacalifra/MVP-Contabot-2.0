@@ -76,14 +76,12 @@ def procesar_comparacion_dgi(path_json_datalogic: str, path_json_dgi: str) -> pd
 def comparar_datalogic_vs_dgi(mes: str, anio: int, empresa: str):
     """
     Compara los datos de Datalogic con los de DGI.
+    Lee de la tabla {empresa}_{año} y sube los resultados a DGI_{empresa}_{año}
     """
     print(f"🔍 Comparando datos de {empresa} con DGI para {mes}/{anio}")
     
-    # Obtener datos de Datalogic
-    tabla = f"{empresa}_{anio}"
-
     # Rutas a los archivos JSON
-    path_datalogic = f"data/datalogic/{mes.lower()}_{anio}.json"
+    path_datalogic = f"data/{empresa}/{mes.lower()}_{anio}.json"
     path_dgi = f"data/dgi/dgi_{mes.lower()}_{anio}.json"
 
     # Verificación
@@ -98,9 +96,11 @@ def comparar_datalogic_vs_dgi(mes: str, anio: int, empresa: str):
     df = procesar_comparacion_dgi(path_datalogic, path_dgi)
     df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.strftime("%Y-%m-%d")
 
-    subir_dataframe(df, tabla_nombre=tabla)
+    # Subir a la tabla DGI_{empresa}_{año}
+    tabla_dgi = f"DGI_{empresa}_{anio}"
+    subir_dataframe(df, tabla_nombre=tabla_dgi)
 
-    print(f"✅ Comparación subida correctamente a Supabase en la tabla {tabla}")
+    print(f"✅ Comparación subida correctamente a Supabase en la tabla {tabla_dgi}")
 
 
 

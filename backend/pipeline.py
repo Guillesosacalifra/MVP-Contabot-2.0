@@ -30,7 +30,7 @@ def probar_red_de_pescadores():
 
     df_nuevos = parsear_xmls_en_carpeta("data/datalogic/archivos-XML")
     
-    historico = obtener_historico(años=[2025])
+    historico = obtener_historico(empresa=empresa, años=[2025])
     
     # Clasificar con red de pescadores
     df_verificados, df_no_verificados = aplicar_red_de_pescadores(df_nuevos, historico)
@@ -39,7 +39,8 @@ def probar_red_de_pescadores():
     if not df_no_verificados.empty:
         print(f"🤖 Clasificando {len(df_no_verificados)} ítems nuevos con IA...")
         resultados = []
-        for lote in tqdm(dividir_en_bloques(df_no_verificados.to_dict(orient="records"), 100)):
+        df_no_verificados_dict = df_no_verificados.to_dict(orient="records")
+        for lote in tqdm(dividir_en_bloques(df_no_verificados_dict, 100)):
             resultados += clasificar_lote(lote)
 
         df_clasificacion = pd.DataFrame(resultados)
@@ -54,9 +55,28 @@ def probar_red_de_pescadores():
             df_no_verificados["categoria"] = df_no_verificados["categoria_clasificada"].fillna(df_no_verificados["categoria"])
             df_no_verificados.drop(columns=["categoria_clasificada"], inplace=True)
 
+    # Asegurarnos de que las columnas sean las mismas antes de concatenar
+    columnas_comunes = list(set(df_verificados.columns) & set(df_no_verificados.columns))
+    
+    # Filtrar solo las columnas comunes
+    df_verificados = df_verificados[columnas_comunes]
+    df_no_verificados = df_no_verificados[columnas_comunes]
+
     # Unir los verificados y los no verificados ya clasificados con IA y subir
     df_final = pd.concat([df_verificados, df_no_verificados], ignore_index=True)
+    
+    # Asegurarnos de que la fecha esté en el formato correcto
     df_final["fecha"] = pd.to_datetime(df_final["fecha"], errors="coerce")
+    
+    # Eliminar cualquier columna que pueda causar conflictos
+    columnas_a_eliminar = ["rowid", "id"]
+    for col in columnas_a_eliminar:
+        if col in df_final.columns:
+            df_final = df_final.drop(columns=[col])
+
+    print(f"📊 Total de registros a subir: {len(df_final)}")
+    print(f"📊 Registros verificados: {len(df_verificados)}")
+    print(f"📊 Registros no verificados: {len(df_no_verificados)}")
 
     subir_dataframe(df_final, tabla_nombre)
 
@@ -80,7 +100,8 @@ def ejecutar_pipeline_completo_para_mes():
 
     print(f"🤖 Clasificando {len(registros)} ítems nuevos con IA...")
     resultados = []
-    for lote in tqdm(dividir_en_bloques(registros.to_dict(orient="records"), 100)):
+    registros_dict = registros.to_dict(orient="records")
+    for lote in tqdm(dividir_en_bloques(registros_dict, 100)):
         resultados += clasificar_lote(lote)
 
     df_clasificacion = pd.DataFrame(resultados)
@@ -100,11 +121,11 @@ def ejecutar_pipeline_comparacion():
     mes, anio, fecha_desde, fecha_hasta = obtener_rango_de_fechas_por_mes()
     print(f"🔍 Comparando datos desde {fecha_desde} hasta {fecha_hasta}")
     
-
     # 1. Exportar desde Supabase
     mes_lower = mes.lower()
-    json_datalogic = f"data/datalogic/{mes_lower}_{anio}.json"
-    exportar_json_mes_desde_supabase(mes, anio)
+    empresa = input("📆 Ingresá el nombre de la EMPRESA (ej. NIKE): ").strip().lower()
+    json_datalogic = f"data/{empresa}/{mes_lower}_{anio}.json"
+    exportar_json_mes_desde_supabase(mes, anio, empresa)
 
     # 2. Buscar archivo XLS en carpeta crudo
     archivos_crudos = os.listdir("data/dgi/crudo")
@@ -119,7 +140,7 @@ def ejecutar_pipeline_comparacion():
     exportar_xls_dgi_a_json(path_xls)
 
     # 3. Comparar y subir resultado
-    comparar_datalogic_vs_dgi(mes_lower, anio)
+    comparar_datalogic_vs_dgi(mes_lower, anio, empresa)
 
     return
 

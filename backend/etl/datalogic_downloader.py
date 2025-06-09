@@ -86,7 +86,7 @@ def descargar_xml_cfe(carpeta_descarga, usuario, contrasena, empresa, url_login,
 
     options = webdriver.ChromeOptions()
     options.add_experimental_option("prefs", prefs)
-    # options.add_argument("--headless")  # Mantenelo comentado para debug visual
+    options.add_argument("--headless")  # Mantenelo comentado para debug visual
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--no-sandbox")

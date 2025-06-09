@@ -5,9 +5,13 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from sqlalchemy import create_engine, inspect, text
-from langchain.chat_models import ChatOpenAI
-from langchain.agents import create_sql_agent, AgentType
-from langchain.sql_database import SQLDatabase
+# from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
+# from langchain.agents import create_sql_agent, AgentType
+from langchain.agents import AgentType
+from langchain_community.agent_toolkits.sql.base import create_sql_agent
+# from langchain.sql_database import SQLDatabase
+from langchain_community.utilities import SQLDatabase
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from dotenv import load_dotenv
 

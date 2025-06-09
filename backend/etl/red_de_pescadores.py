@@ -32,9 +32,24 @@ def es_similar(a: str, b: str, umbral: float = 0.9) -> bool:
 def preparar_historico_para_red(df_historico: pd.DataFrame) -> pd.DataFrame:
     """
     Prepara el histórico: filtra solo verificados y normaliza campos necesarios.
+    Si el DataFrame está vacío o no tiene la columna verificado, devuelve un DataFrame vacío.
     """
+    if df_historico.empty:
+        print("⚠️ El histórico está vacío")
+        return pd.DataFrame(columns=["proveedor", "descripcion", "categoria", "proveedor_norm", "descripcion_norm"])
+
     df = df_historico.copy()
-    df = df[df["verificado"] == True]
+    
+    # Si no existe la columna verificado, asumimos que todos los registros están verificados
+    if "verificado" not in df.columns:
+        print("⚠️ No se encontró columna 'verificado' en el histórico, asumiendo todos verificados")
+        df["verificado"] = True
+    else:
+        df = df[df["verificado"] == True]
+
+    if df.empty:
+        print("⚠️ No hay registros verificados en el histórico")
+        return pd.DataFrame(columns=["proveedor", "descripcion", "categoria", "proveedor_norm", "descripcion_norm"])
 
     df["proveedor_norm"] = df["proveedor"].apply(normalizar_texto)
     df["descripcion_norm"] = df["descripcion"].apply(normalizar_texto)
