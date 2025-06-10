@@ -2,12 +2,19 @@
 
 import os
 import pandas as pd
-from supabase import create_client, Client, ClientOptions
+from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 from dotenv import load_dotenv
 from datetime import datetime
 import psycopg2
 from calendar import monthrange
 from backend.utils import obtener_nombre_mes
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -17,22 +24,46 @@ DATABASE_URL = os.getenv("SUPABASE_URI")  # Cambiado de TRANSACTION_POOLER a SUP
 if not SUPABASE_URL or not SUPABASE_API_KEY or not DATABASE_URL:
     raise ValueError("❌ Faltan variables SUPABASE_URL, SUPABASE_API_KEY o SUPABASE_URI en .env")
 
-try:
-    # Configurar opciones del cliente
-    options = ClientOptions(
-        postgrest_client_timeout=10,
-        schema='public'
-    )
+def get_supabase_client() -> Client:
+    """
+    Crea y retorna un cliente de Supabase configurado.
     
-    # Inicializar cliente Supabase con las opciones configuradas
-    supabase: Client = create_client(
-        supabase_url=SUPABASE_URL,
-        supabase_key=SUPABASE_API_KEY,
-        options=options
-    )
-except Exception as e:
-    print(f"❌ Error inicializando cliente Supabase: {e}")
-    raise
+    Returns:
+        Client: Cliente de Supabase configurado
+    """
+    try:
+        # Obtener credenciales de las variables de entorno
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_API_KEY')
+        supabase_uri = os.getenv('SUPABASE_URI')
+        
+        if not all([supabase_url, supabase_key, supabase_uri]):
+            raise ValueError("Faltan variables de entorno necesarias para Supabase")
+        
+        # Configurar opciones del cliente
+        options = ClientOptions(
+            schema='public',
+            headers={
+                'X-Client-Info': 'supabase-py/2.15.3'
+            },
+            auto_refresh_token=True,
+            persist_session=True,
+            storage_key='supabase.auth.token'
+        )
+        
+        # Crear cliente con las opciones configuradas
+        client = create_client(
+            supabase_url=supabase_url,
+            supabase_key=supabase_key,
+            options=options
+        )
+        
+        logger.info("Cliente de Supabase inicializado correctamente")
+        return client
+        
+    except Exception as e:
+        logger.error(f"Error al inicializar el cliente de Supabase: {str(e)}")
+        raise
 
 
 def crear_tabla_si_no_existe(df: pd.DataFrame, nombre_tabla: str):
