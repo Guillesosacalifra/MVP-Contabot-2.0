@@ -50,7 +50,9 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:8080",
         "https://preview--contia.lovable.app",
-        "https://contia.lovable.app"
+        "https://contia.lovable.app",
+        "https://contia.dev",
+        "http://localhost:10000"
     ],
     allow_credentials=True,
     allow_methods=["*"],
