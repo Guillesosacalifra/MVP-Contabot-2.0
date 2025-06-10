@@ -5,67 +5,49 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.pool import QueuePool
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
-# from langchain.chat_models import ChatOpenAI
 from langchain_community.chat_models import ChatOpenAI
-# from langchain.agents import create_sql_agent, AgentType
 from langchain.agents import AgentType
 from langchain_community.agent_toolkits.sql.base import create_sql_agent
-# from langchain.sql_database import SQLDatabase
 from langchain_community.utilities import SQLDatabase
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from dotenv import load_dotenv
+from supabase import create_client, Client
 import time
 
 # Inicialización
 load_dotenv()
 
-SUPABASE_DB_URI = os.getenv("SUPABASE_URI")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not SUPABASE_DB_URI or not OPENAI_API_KEY:
+if not SUPABASE_URL or not SUPABASE_KEY or not OPENAI_API_KEY:
     print("⚠️ Advertencia: Faltan variables de entorno críticas")
-    print(f"SUPABASE_URI: {'✅' if SUPABASE_DB_URI else '❌'}")
+    print(f"SUPABASE_URL: {'✅' if SUPABASE_URL else '❌'}")
+    print(f"SUPABASE_KEY: {'✅' if SUPABASE_KEY else '❌'}")
     print(f"OPENAI_API_KEY: {'✅' if OPENAI_API_KEY else '❌'}")
-    raise RuntimeError("❌ Faltan configurar SUPABASE_URI u OPENAI_API_KEY en .env")
+    raise RuntimeError("❌ Faltan configurar SUPABASE_URL, SUPABASE_KEY u OPENAI_API_KEY en .env")
 
-# Configurar el engine con un pool de conexiones
-engine = create_engine(
-    SUPABASE_DB_URI,
-    poolclass=QueuePool,
-    pool_size=5,
-    max_overflow=10,
-    pool_timeout=30,
-    pool_recycle=1800,  # Reciclar conexiones cada 30 minutos
-    pool_pre_ping=True  # Verificar conexión antes de usar
-)
+# Inicializar cliente de Supabase
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def get_db_connection():
-    """Obtiene una conexión de la base de datos con reintentos"""
-    max_retries = 3
-    retry_delay = 1  # segundos
-    
-    for attempt in range(max_retries):
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-                return conn
-        except OperationalError as e:
-            if attempt == max_retries - 1:
-                raise
-            print(f"⚠️ Intento {attempt + 1} fallido, reintentando en {retry_delay} segundos...")
-            time.sleep(retry_delay)
-            retry_delay *= 2
+    """Obtiene una conexión a la base de datos usando Supabase"""
+    try:
+        # Verificar conexión haciendo una consulta simple
+        response = supabase.table('historial_chat').select('count').limit(1).execute()
+        return response
+    except Exception as e:
+        print(f"❌ Error conectando a Supabase: {e}")
+        raise
 
 # Verificar conexión inicial
 try:
     get_db_connection()
-    print("✅ Conexión a base de datos establecida")
+    print("✅ Conexión a Supabase establecida")
 except Exception as e:
-    print(f"❌ Error conectando a la base de datos: {e}")
-    raise RuntimeError(f"Error de conexión a la base de datos: {e}")
+    print(f"❌ Error conectando a Supabase: {e}")
+    raise RuntimeError(f"Error de conexión a Supabase: {e}")
 
 router = APIRouter()
 
@@ -97,17 +79,13 @@ class Respuesta(BaseModel):
 # Funciones auxiliares
 def obtener_historial_usuario(usuario: str, limite: int = 5):
     try:
-        with get_db_connection() as conn:
-            result = conn.execute(
-                text("""
-                    SELECT pregunta, respuesta
-                    FROM historial_chat
-                    WHERE usuario = :usuario
-                    ORDER BY fecha DESC
-                    LIMIT :limite
-                """), {"usuario": usuario, "limite": limite}
-            )
-            return result.fetchall()
+        response = supabase.table('historial_chat')\
+            .select('pregunta, respuesta')\
+            .eq('usuario', usuario)\
+            .order('fecha', desc=True)\
+            .limit(limite)\
+            .execute()
+        return response.data
     except Exception as e:
         print(f"⚠️ Error al obtener historial de {usuario}: {e}")
         return []
@@ -120,11 +98,9 @@ def consultar_datos(request: ConsultaRequest):
     tabla_objetivo = request.tabla_datos
 
     try:
-        # Validar tabla
-        inspector = inspect(engine)
-        if tabla_objetivo not in inspector.get_table_names():
-            raise HTTPException(status_code=400, detail=f"No existe la tabla {tabla_objetivo} en Supabase")
-
+        # Verificar que la tabla existe
+        response = supabase.table(tabla_objetivo).select('count').limit(1).execute()
+        
         # Obtener historial anterior
         historial = obtener_historial_usuario(request.usuario)
 
@@ -145,8 +121,8 @@ def consultar_datos(request: ConsultaRequest):
             """)
         ]
         for fila in reversed(historial):
-            mensajes.append(HumanMessage(content=fila.pregunta))
-            mensajes.append(AIMessage(content=fila.respuesta))
+            mensajes.append(HumanMessage(content=fila['pregunta']))
+            mensajes.append(AIMessage(content=fila['respuesta']))
 
         mensajes.append(HumanMessage(content=request.pregunta))
 
@@ -160,7 +136,7 @@ def consultar_datos(request: ConsultaRequest):
         # Crear conexión SQL con reintentos
         try:
             sql_db = SQLDatabase.from_uri(
-                SUPABASE_DB_URI,
+                f"postgresql://postgres:{SUPABASE_KEY}@{SUPABASE_URL.replace('https://', '')}/postgres",
                 include_tables=[tabla_objetivo],
                 engine_args={
                     'poolclass': QueuePool,
@@ -189,36 +165,21 @@ def consultar_datos(request: ConsultaRequest):
         # Guardar en historial_chat
         try:
             fecha_actual = datetime.utcnow().isoformat()
-            with get_db_connection() as conn:
-                conn.execute(
-                    text("""
-                        INSERT INTO historial_chat (fecha, usuario, pregunta, respuesta)
-                        VALUES (:fecha, :usuario, :pregunta, :respuesta)
-                    """), {
-                        "fecha": fecha_actual,
-                        "usuario": request.usuario,
-                        "pregunta": request.pregunta,
-                        "respuesta": respuesta_final
-                    }
-                )
-                conn.commit()
+            supabase.table('historial_chat').insert({
+                'fecha': fecha_actual,
+                'usuario': request.usuario,
+                'pregunta': request.pregunta,
+                'respuesta': respuesta_final
+            }).execute()
         except Exception as e:
-            print(f"⚠️ Error guardando historial: {e}")
+            print(f"⚠️ Error al guardar en historial: {e}")
 
         return Respuesta(respuesta=respuesta_final)
 
-    except HTTPException:
-        raise
     except Exception as e:
-        import traceback
-        print("❌ Error interno:")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error procesando la consulta: {str(e)}")
+        print(f"❌ Error en consulta: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.options("/consultar")
 async def consultar_options():
-    return JSONResponse(content={}, headers={
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-    }) 
+    return JSONResponse(content={}) 
