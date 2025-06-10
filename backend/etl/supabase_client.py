@@ -24,6 +24,9 @@ DATABASE_URL = os.getenv("SUPABASE_URI")  # Cambiado de TRANSACTION_POOLER a SUP
 if not SUPABASE_URL or not SUPABASE_API_KEY or not DATABASE_URL:
     raise ValueError("❌ Faltan variables SUPABASE_URL, SUPABASE_API_KEY o SUPABASE_URI en .env")
 
+# Inicializar cliente de Supabase
+supabase = create_client(SUPABASE_URL, SUPABASE_API_KEY)
+
 def get_supabase_client() -> Client:
     """
     Crea y retorna un cliente de Supabase configurado.

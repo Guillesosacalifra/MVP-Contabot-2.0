@@ -12,13 +12,14 @@ from langchain_community.utilities import SQLDatabase
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from sqlalchemy.pool import QueuePool
 import time
 
 # Inicialización
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY or not OPENAI_API_KEY:
