@@ -2,7 +2,7 @@
 
 import os
 import pandas as pd
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from dotenv import load_dotenv
 from datetime import datetime
 import psycopg2
@@ -18,14 +18,17 @@ if not SUPABASE_URL or not SUPABASE_API_KEY or not DATABASE_URL:
     raise ValueError("❌ Faltan variables SUPABASE_URL, SUPABASE_API_KEY o SUPABASE_URI en .env")
 
 try:
-    # Inicializar cliente Supabase con configuración básica
+    # Configurar opciones del cliente
+    options = ClientOptions(
+        postgrest_client_timeout=10,
+        schema='public'
+    )
+    
+    # Inicializar cliente Supabase con las opciones configuradas
     supabase: Client = create_client(
         supabase_url=SUPABASE_URL,
         supabase_key=SUPABASE_API_KEY,
-        options={
-            'schema': 'public',
-            'headers': {'X-Client-Info': 'supabase-py/2.3.1'}
-        }
+        options=options
     )
 except Exception as e:
     print(f"❌ Error inicializando cliente Supabase: {e}")
