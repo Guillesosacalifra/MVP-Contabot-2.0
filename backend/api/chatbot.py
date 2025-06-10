@@ -3,7 +3,6 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain_community.chat_models import ChatOpenAI
 from langchain.agents import AgentType
@@ -51,21 +50,6 @@ except Exception as e:
     raise RuntimeError(f"Error de conexión a Supabase: {e}")
 
 router = APIRouter()
-
-# Configurar CORS para el router
-router.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:8080",
-        "https://preview--contia.lovable.app",
-        "https://contia.lovable.app"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Modelos
 class ConsultaRequest(BaseModel):
