@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from backend.api.actualizar_categoria import router as actualizar_router
-from api.routes.chatbot import router as chatbot_router
+from backend.api.chatbot import router as chatbot_router
 import logging
 import time
 from datetime import datetime
