@@ -3,8 +3,11 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.pool import QueuePool
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 # from langchain.chat_models import ChatOpenAI
 from langchain_community.chat_models import ChatOpenAI
 # from langchain.agents import create_sql_agent, AgentType
@@ -14,6 +17,7 @@ from langchain_community.agent_toolkits.sql.base import create_sql_agent
 from langchain_community.utilities import SQLDatabase
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from dotenv import load_dotenv
+import time
 
 # Inicialización
 load_dotenv()
@@ -27,17 +31,58 @@ if not SUPABASE_DB_URI or not OPENAI_API_KEY:
     print(f"OPENAI_API_KEY: {'✅' if OPENAI_API_KEY else '❌'}")
     raise RuntimeError("❌ Faltan configurar SUPABASE_URI u OPENAI_API_KEY en .env")
 
+# Configurar el engine con un pool de conexiones
+engine = create_engine(
+    SUPABASE_DB_URI,
+    poolclass=QueuePool,
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=30,
+    pool_recycle=1800,  # Reciclar conexiones cada 30 minutos
+    pool_pre_ping=True  # Verificar conexión antes de usar
+)
+
+def get_db_connection():
+    """Obtiene una conexión de la base de datos con reintentos"""
+    max_retries = 3
+    retry_delay = 1  # segundos
+    
+    for attempt in range(max_retries):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+                return conn
+        except OperationalError as e:
+            if attempt == max_retries - 1:
+                raise
+            print(f"⚠️ Intento {attempt + 1} fallido, reintentando en {retry_delay} segundos...")
+            time.sleep(retry_delay)
+            retry_delay *= 2
+
+# Verificar conexión inicial
 try:
-    engine = create_engine(SUPABASE_DB_URI)
-    # Verificar conexión
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
+    get_db_connection()
     print("✅ Conexión a base de datos establecida")
 except Exception as e:
     print(f"❌ Error conectando a la base de datos: {e}")
     raise RuntimeError(f"Error de conexión a la base de datos: {e}")
 
 router = APIRouter()
+
+# Configurar CORS para el router
+router.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8080",
+        "https://preview--contia.lovable.app",
+        "https://contia.lovable.app"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Modelos
 class ConsultaRequest(BaseModel):
@@ -52,7 +97,7 @@ class Respuesta(BaseModel):
 # Funciones auxiliares
 def obtener_historial_usuario(usuario: str, limite: int = 5):
     try:
-        with engine.connect() as conn:
+        with get_db_connection() as conn:
             result = conn.execute(
                 text("""
                     SELECT pregunta, respuesta
@@ -108,25 +153,43 @@ def consultar_datos(request: ConsultaRequest):
         # Crear modelo y agente
         llm = ChatOpenAI(
             openai_api_key=OPENAI_API_KEY,
-            model_name="gpt-4o-mini",
+            model_name="gpt-3.5-turbo",
             temperature=0
         )
-        sql_db = SQLDatabase.from_uri(SUPABASE_DB_URI, include_tables=[tabla_objetivo])
+        
+        # Crear conexión SQL con reintentos
+        try:
+            sql_db = SQLDatabase.from_uri(
+                SUPABASE_DB_URI,
+                include_tables=[tabla_objetivo],
+                engine_args={
+                    'poolclass': QueuePool,
+                    'pool_size': 5,
+                    'max_overflow': 10,
+                    'pool_timeout': 30,
+                    'pool_recycle': 1800,
+                    'pool_pre_ping': True
+                }
+            )
+        except Exception as e:
+            print(f"❌ Error creando conexión SQL: {e}")
+            raise HTTPException(status_code=500, detail="Error de conexión a la base de datos")
+
         agent = create_sql_agent(
             llm=llm,
             db=sql_db,
             agent_type=AgentType.OPENAI_FUNCTIONS,
             verbose=False
         )
+        
         respuesta_llm = agent.invoke(mensajes)
-
         respuesta_final = respuesta_llm.get('output', str(respuesta_llm)).strip()
         respuesta_final = respuesta_final.replace("```sql", "").replace("```", "")
 
         # Guardar en historial_chat
         try:
             fecha_actual = datetime.utcnow().isoformat()
-            with engine.begin() as conn:
+            with get_db_connection() as conn:
                 conn.execute(
                     text("""
                         INSERT INTO historial_chat (fecha, usuario, pregunta, respuesta)
@@ -138,6 +201,7 @@ def consultar_datos(request: ConsultaRequest):
                         "respuesta": respuesta_final
                     }
                 )
+                conn.commit()
         except Exception as e:
             print(f"⚠️ Error guardando historial: {e}")
 

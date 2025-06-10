@@ -1,10 +1,9 @@
 services:
   - type: web
-    name: mvp-contabot-2-0
+    name: contia-backend
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --log-level debug --workers 1
-    healthCheckPath: /health
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -27,4 +26,6 @@ services:
       - key: EMPRESA_DATALOGIC
         sync: false
       - key: TRANSACTION_POOLER
-        sync: false 
+        sync: false
+    healthCheckPath: /health
+    autoDeploy: true 

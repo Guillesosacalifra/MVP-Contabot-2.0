@@ -12,13 +12,21 @@ load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY")
-DATABASE_URL = os.getenv("TRANSACTION_POOLER")
+DATABASE_URL = os.getenv("SUPABASE_URI")  # Cambiado de TRANSACTION_POOLER a SUPABASE_URI
 
 if not SUPABASE_URL or not SUPABASE_API_KEY or not DATABASE_URL:
-    raise ValueError("❌ Faltan variables SUPABASE_URL, SUPABASE_API_KEY o TRANSACTION_POOLER en .env")
+    raise ValueError("❌ Faltan variables SUPABASE_URL, SUPABASE_API_KEY o SUPABASE_URI en .env")
 
 try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
+    # Inicializar cliente Supabase con configuración básica
+    supabase: Client = create_client(
+        supabase_url=SUPABASE_URL,
+        supabase_key=SUPABASE_API_KEY,
+        options={
+            'schema': 'public',
+            'headers': {'X-Client-Info': 'supabase-py/2.3.1'}
+        }
+    )
 except Exception as e:
     print(f"❌ Error inicializando cliente Supabase: {e}")
     raise

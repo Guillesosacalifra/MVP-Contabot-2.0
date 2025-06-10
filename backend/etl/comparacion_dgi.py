@@ -102,11 +102,3 @@ def comparar_datalogic_vs_dgi(mes: str, anio: int, empresa: str):
 
     print(f"✅ Comparación subida correctamente a Supabase en la tabla {tabla_dgi}")
 
-
-
-# if __name__ == "__main__":
-    
-#     mes, anio, fecha_desde, fecha_hasta = obtener_rango_de_fechas_por_mes()
-#     print(f"🔍 Comparando datos desde {fecha_desde} hasta {fecha_hasta}")
-#     # exportar_json_mes_desde_supabase(mes, anio)
-#     comparar_datalogic_vs_dgi(mes, anio)
