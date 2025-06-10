@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
+# from langchain_openai import OpenAI
+from langchain_community.chat_models import ChatOpenAI
 from langchain.agents import AgentType
 from langchain_community.agent_toolkits.sql.base import create_sql_agent
 from langchain_community.utilities import SQLDatabase
@@ -12,7 +13,26 @@ from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from sqlalchemy.pool import QueuePool
+from sqlalchemy import create_engine
 import time
+from functools import wraps
+
+# Decorador para reintentos
+def retry_db_connection(max_retries=3, delay=1):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    print(f"⚠️ Intento {attempt + 1} fallido, reintentando en {delay}s...")
+                    time.sleep(delay)
+            return None
+        return wrapper
+    return decorator
 
 # Inicialización
 load_dotenv()
@@ -31,6 +51,21 @@ if not SUPABASE_URL or not SUPABASE_KEY or not OPENAI_API_KEY:
 # Inicializar cliente de Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Configurar engine de SQLAlchemy
+engine = create_engine(
+    f"postgresql://postgres:{SUPABASE_KEY}@{SUPABASE_URL.replace('https://', '')}/postgres",
+    poolclass=QueuePool,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,  # Verifica conexiones antes de usarlas
+    pool_recycle=3600,   # Recicla conexiones cada hora
+    connect_args={
+        "connect_timeout": 10,
+        "sslmode": "require"
+    }
+)
+
+@retry_db_connection(max_retries=3, delay=2)
 def get_db_connection():
     """Obtiene una conexión a la base de datos usando Supabase"""
     try:
@@ -61,7 +96,7 @@ class ConsultaRequest(BaseModel):
 class Respuesta(BaseModel):
     respuesta: str
 
-# Funciones auxiliares
+@retry_db_connection(max_retries=3, delay=2)
 def obtener_historial_usuario(usuario: str, limite: int = 5):
     try:
         response = supabase.table('historial_chat')\
@@ -77,6 +112,7 @@ def obtener_historial_usuario(usuario: str, limite: int = 5):
 
 # Endpoints
 @router.post("/consultar", response_model=Respuesta)
+@retry_db_connection(max_retries=3, delay=2)
 def consultar_datos(request: ConsultaRequest):
     print(f"[Backend] Recibida consulta de {request.usuario}: {request.pregunta}")
     print(f"[Backend] Usando tabla: {request.tabla_datos}")
