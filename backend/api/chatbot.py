@@ -16,6 +16,7 @@ from supabase import create_client, Client
 # from sqlalchemy import create_engine
 import time
 from functools import wraps
+from typing import List, Optional, Any
 
 # Decorador para reintentos
 def retry_db_connection(max_retries=3, delay=1):
@@ -110,6 +111,37 @@ def ejecutar_consulta_sql(tabla: str, query: str):
         print(f"❌ Error ejecutando consulta SQL: {e}")
         raise
 
+class SupabaseSQLDatabase(SQLDatabase):
+    """Implementación personalizada de SQLDatabase para Supabase"""
+    
+    def __init__(self, tabla: str):
+        self.tabla = tabla
+        self._tables = [tabla]
+        self._metadata = None
+        self._engine = None
+        self._schema = None
+
+    def run(self, command: str, fetch: str = "all") -> Any:
+        """Ejecuta una consulta SQL y retorna los resultados"""
+        try:
+            result = ejecutar_consulta_sql(self.tabla, command)
+            if fetch == "all":
+                return result
+            elif fetch == "one":
+                return result[0] if result else None
+            return result
+        except Exception as e:
+            print(f"❌ Error ejecutando consulta: {e}")
+            raise
+
+    def get_table_info(self, table_names: Optional[List[str]] = None) -> str:
+        """Retorna información sobre las tablas"""
+        return f"Tabla: {self.tabla}"
+
+    def get_context(self) -> str:
+        """Retorna el contexto de la base de datos"""
+        return f"Base de datos Supabase con tabla {self.tabla}"
+
 # Endpoints
 @router.post("/consultar", response_model=Respuesta)
 @retry_db_connection(max_retries=3, delay=2)
@@ -153,17 +185,9 @@ def consultar_datos(request: ConsultaRequest):
             model_name="gpt-3.5-turbo",
             temperature=0
         )
-
-        # Crear una clase personalizada para manejar las consultas SQL
-        class CustomSQLDatabase:
-            def __init__(self, tabla):
-                self.tabla = tabla
-
-            def run(self, query):
-                return ejecutar_consulta_sql(self.tabla, query)
-
+        
         # Crear instancia de la base de datos personalizada
-        db = CustomSQLDatabase(tabla_objetivo)
+        db = SupabaseSQLDatabase(tabla_objetivo)
         
         # Crear el agente con la base de datos personalizada
         agent = create_sql_agent(
