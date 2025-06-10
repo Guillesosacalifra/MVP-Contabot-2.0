@@ -12,8 +12,8 @@ from langchain_community.utilities import SQLDatabase
 from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from sqlalchemy.pool import QueuePool
-from sqlalchemy import create_engine
+# from sqlalchemy.pool import QueuePool
+# from sqlalchemy import create_engine
 import time
 from functools import wraps
 
@@ -50,20 +50,6 @@ if not SUPABASE_URL or not SUPABASE_KEY or not OPENAI_API_KEY:
 
 # Inicializar cliente de Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Configurar engine de SQLAlchemy
-engine = create_engine(
-    f"postgresql://postgres:{SUPABASE_KEY}@{SUPABASE_URL.replace('https://', '')}/postgres",
-    poolclass=QueuePool,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,  # Verifica conexiones antes de usarlas
-    pool_recycle=3600,   # Recicla conexiones cada hora
-    connect_args={
-        "connect_timeout": 10,
-        "sslmode": "require"
-    }
-)
 
 @retry_db_connection(max_retries=3, delay=2)
 def get_db_connection():
@@ -110,6 +96,16 @@ def obtener_historial_usuario(usuario: str, limite: int = 5):
         print(f"⚠️ Error al obtener historial de {usuario}: {e}")
         return []
 
+@retry_db_connection(max_retries=3, delay=2)
+def ejecutar_consulta_sql(tabla: str, query: str):
+    """Ejecuta una consulta SQL usando la API REST de Supabase"""
+    try:
+        response = supabase.rpc('execute_sql', {'query': query}).execute()
+        return response.data
+    except Exception as e:
+        print(f"❌ Error ejecutando consulta SQL: {e}")
+        raise
+
 # Endpoints
 @router.post("/consultar", response_model=Respuesta)
 @retry_db_connection(max_retries=3, delay=2)
@@ -154,29 +150,20 @@ def consultar_datos(request: ConsultaRequest):
             temperature=0
         )
         
-        # Crear conexión SQL con reintentos
-        try:
-            sql_db = SQLDatabase.from_uri(
-                f"postgresql://postgres:{SUPABASE_KEY}@{SUPABASE_URL.replace('https://', '')}/postgres",
-                include_tables=[tabla_objetivo],
-                engine_args={
-                    'poolclass': QueuePool,
-                    'pool_size': 5,
-                    'max_overflow': 10,
-                    'pool_timeout': 30,
-                    'pool_recycle': 1800,
-                    'pool_pre_ping': True
-                }
-            )
-        except Exception as e:
-            print(f"❌ Error creando conexión SQL: {e}")
-            raise HTTPException(status_code=500, detail="Error de conexión a la base de datos")
+        # Crear agente con función personalizada para consultas SQL
+        def execute_sql(query: str) -> str:
+            try:
+                result = ejecutar_consulta_sql(tabla_objetivo, query)
+                return str(result)
+            except Exception as e:
+                return f"Error ejecutando consulta: {str(e)}"
 
         agent = create_sql_agent(
             llm=llm,
-            db=sql_db,
+            db=None,  # No usamos SQLDatabase directamente
             agent_type=AgentType.OPENAI_FUNCTIONS,
-            verbose=False
+            verbose=False,
+            execute_sql=execute_sql  # Función personalizada para ejecutar SQL
         )
         
         respuesta_llm = agent.invoke(mensajes)
