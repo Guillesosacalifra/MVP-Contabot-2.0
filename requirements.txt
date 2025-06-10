@@ -14,6 +14,7 @@ plotly
 # LANGCHAIN + GPT
 langchain==0.1.9
 langchain-community==0.0.24
+langchain-openai>=0.0.8
 
 # WEB SCRAPING
 selenium==4.18.1
