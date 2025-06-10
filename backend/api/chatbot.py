@@ -100,6 +100,10 @@ def obtener_historial_usuario(usuario: str, limite: int = 5):
 def ejecutar_consulta_sql(tabla: str, query: str):
     """Ejecuta una consulta SQL usando la API REST de Supabase"""
     try:
+        # Primero verificamos que la tabla existe
+        response = supabase.table(tabla).select('count').limit(1).execute()
+        
+        # Luego ejecutamos la consulta
         response = supabase.rpc('execute_sql', {'query': query}).execute()
         return response.data
     except Exception as e:
@@ -149,21 +153,24 @@ def consultar_datos(request: ConsultaRequest):
             model_name="gpt-3.5-turbo",
             temperature=0
         )
-        
-        # Crear agente con función personalizada para consultas SQL
-        def execute_sql(query: str) -> str:
-            try:
-                result = ejecutar_consulta_sql(tabla_objetivo, query)
-                return str(result)
-            except Exception as e:
-                return f"Error ejecutando consulta: {str(e)}"
 
+        # Crear una clase personalizada para manejar las consultas SQL
+        class CustomSQLDatabase:
+            def __init__(self, tabla):
+                self.tabla = tabla
+
+            def run(self, query):
+                return ejecutar_consulta_sql(self.tabla, query)
+
+        # Crear instancia de la base de datos personalizada
+        db = CustomSQLDatabase(tabla_objetivo)
+        
+        # Crear el agente con la base de datos personalizada
         agent = create_sql_agent(
             llm=llm,
-            db=None,  # No usamos SQLDatabase directamente
+            db=db,
             agent_type=AgentType.OPENAI_FUNCTIONS,
-            verbose=False,
-            execute_sql=execute_sql  # Función personalizada para ejecutar SQL
+            verbose=False
         )
         
         respuesta_llm = agent.invoke(mensajes)
