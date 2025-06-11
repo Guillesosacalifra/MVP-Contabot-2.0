@@ -33,10 +33,12 @@ def procesar_comparacion_dgi(path_json_datalogic: str, path_json_dgi: str) -> pd
 
     df_dgi_group = df_dgi.groupby("rut_emisor", as_index=False).agg({
         "monto_total": "sum",
-        "monto_neto": "sum"
+        "monto_neto": "sum",
+        "moneda": lambda x: x.iloc[0] if not x.empty else None  # Tomamos la primera moneda del grupo
     }).rename(columns={"rut_emisor": "ruc", "monto_total": "suma_total", "monto_neto": "suma_neto"})
 
     comparacion = pd.merge(df_cfe_group, df_dgi_group, on="ruc", how="outer").fillna(0)
+    comparacion["moneda"] = comparacion["moneda"].fillna("No especificada")  # Para los casos donde no hay moneda
 
     # Cálculo de diferencias
     comparacion["dif_total"] = (comparacion["suma_datalogic"] - comparacion["suma_total"]).abs()

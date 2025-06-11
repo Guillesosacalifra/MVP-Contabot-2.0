@@ -32,3 +32,7 @@ PY := py
 pipeline:
 	set PYTHONPATH=. && $(PY) backend/main.py
 
+# Ejecutar comparación con DGI
+comparacion:
+	set PYTHONPATH=. && $(PY) run_comparison.py
+
