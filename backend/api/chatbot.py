@@ -78,6 +78,7 @@ SQL_TEMPLATES = {
             monto
         FROM {tabla}
         WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
+        AND categoria ILIKE '%{categoria}%'
         ORDER BY fecha DESC, monto DESC
     """,
     
@@ -226,7 +227,7 @@ class QueryAnalyzer:
     def __init__(self, openai_api_key: str):
         self.llm = ChatOpenAI(
             openai_api_key=openai_api_key,
-            model_name="gpt-3.5-turbo",
+            model_name="gpt-4o-mini",
             temperature=0
         )
     
@@ -248,7 +249,8 @@ class QueryAnalyzer:
             "fecha_inicio": "YYYY-MM-DD",
             "fecha_fin": "YYYY-MM-DD", 
             "termino_busqueda": "termino_si_busca_descripcion_o_null",
-            "limite": numero_si_pide_top_o_10,
+            "limite": 10,
+            "año": {año},
             "tipo_consulta": "suma|detalle|top|busqueda|mensual|semanal|diario|proveedor|moneda|comparativa"
         }}
 
@@ -272,6 +274,9 @@ class QueryAnalyzer:
         - Si no especifica fechas, usa todo el año {año}
         - Para categorías como "combustible", usa "combustible" (sin tildes ni mayúsculas)
         - Fechas siempre en formato YYYY-MM-DD
+        - Si pregunta por total/cuanto gastó, usa "total_gastos_categoria"
+        - Si pregunta por detalles/listado, usa "gastos_por_periodo"
+        - SIEMPRE incluye limite con un número, no null
 
         RESPONDE SOLO EL JSON:
         """
@@ -286,18 +291,27 @@ class QueryAnalyzer:
             elif contenido.startswith('```'):
                 contenido = contenido[3:-3]
             
-            return json.loads(contenido)
+            parametros = json.loads(contenido)
+            
+            # Asegurar que año y limite siempre tengan valores válidos
+            parametros['año'] = año
+            if parametros.get('limite') is None:
+                parametros['limite'] = 10
+                
+            return parametros
+            
         except Exception as e:
             print(f"❌ Error extrayendo parámetros: {e}")
             # Fallback básico
             return {
-                "template": "gastos_por_periodo",
-                "categoria": None,
+                "template": "total_gastos_categoria",
+                "categoria": "combustible",
                 "fecha_inicio": f"{año}-01-01",
                 "fecha_fin": f"{año}-12-31",
                 "termino_busqueda": None,
                 "limite": 10,
-                "tipo_consulta": "detalle"
+                "año": año,
+                "tipo_consulta": "suma"
             }
 
 def construir_sql_seguro(template_name: str, parametros: Dict, tabla: str) -> str:
@@ -308,7 +322,17 @@ def construir_sql_seguro(template_name: str, parametros: Dict, tabla: str) -> st
     
     template = SQL_TEMPLATES[template_name]
     
-    # Sanitizar parámetros
+    # Sanitizar parámetros con valores por defecto seguros
+    limite_valor = parametros.get('limite')
+    if limite_valor is None:
+        limite_valor = 10
+    limite_valor = min(int(limite_valor), 100)
+    
+    año_valor = parametros.get('año')
+    if año_valor is None:
+        año_valor = 2025
+    año_valor = int(año_valor)
+    
     params_seguros = {
         'tabla': tabla,  # Validado previamente
         'fecha_inicio': parametros.get('fecha_inicio', '2025-01-01'),
@@ -317,8 +341,8 @@ def construir_sql_seguro(template_name: str, parametros: Dict, tabla: str) -> st
         'proveedor': (parametros.get('proveedor') or '').replace("'", "''"),
         'moneda': (parametros.get('moneda') or '').replace("'", "''"),
         'termino': (parametros.get('termino_busqueda') or '').replace("'", "''"),
-        'año': int(parametros.get('año', 2025)),
-        'limite': min(int(parametros.get('limite', 10)), 100)  # Máximo 100
+        'año': año_valor,
+        'limite': limite_valor
     }
     
     try:
@@ -349,7 +373,7 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
     
     llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-3.5-turbo",
+        model_name="gpt-4o-mini",
         temperature=0
     )
     
@@ -368,7 +392,7 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
     1. Responde directamente la pregunta
     2. Formatea montos como $1,234.56
     3. Si hay muchos registros, resume los principales
-    4. Usa fechas legibles (ej: "marzo 2025")
+    4. Usa fechas legibles (ej: "mayo 2025")
     5. Sé conciso pero completo
     6. NO menciones código SQL ni técnico
 
