@@ -23,7 +23,9 @@ def procesar_comparacion_dgi(path_json_datalogic: str, path_json_dgi: str) -> pd
     df_cfe = df_cfe[df_cfe["monto_item"].notna()]
     df_dgi = df_dgi[df_dgi["monto_total"].notna() | df_dgi["monto_neto"].notna()]
 
+    # Convertir fechas
     df_cfe["fecha"] = pd.to_datetime(df_cfe["fecha"], errors="coerce")
+    df_dgi["fecha_comprobante"] = pd.to_datetime(df_dgi["fecha_comprobante"], format="%d/%m/%Y", errors="coerce")
 
     # Agrupamiento
     df_cfe_group = df_cfe.groupby("ruc", as_index=False).agg({
@@ -34,7 +36,8 @@ def procesar_comparacion_dgi(path_json_datalogic: str, path_json_dgi: str) -> pd
     df_dgi_group = df_dgi.groupby("rut_emisor", as_index=False).agg({
         "monto_total": "sum",
         "monto_neto": "sum",
-        "moneda": lambda x: x.iloc[0] if not x.empty else None  # Tomamos la primera moneda del grupo
+        "moneda": lambda x: x.iloc[0] if not x.empty else None,  # Tomamos la primera moneda del grupo
+        "fecha_comprobante": "max"  # Tomamos la fecha más reciente del grupo
     }).rename(columns={"rut_emisor": "ruc", "monto_total": "suma_total", "monto_neto": "suma_neto"})
 
     comparacion = pd.merge(df_cfe_group, df_dgi_group, on="ruc", how="outer").fillna(0)
@@ -72,6 +75,16 @@ def procesar_comparacion_dgi(path_json_datalogic: str, path_json_dgi: str) -> pd
 
     comparacion["aclaracion"] = comparacion.apply(aclaracion, axis=1)
 
+    # Solo cuando aclaracion es 'no están en Datalogic', usar fecha_comprobante
+    comparacion.loc[comparacion["aclaracion"] == "no están en Datalogic", "fecha"] = comparacion["fecha_comprobante"]
+
+    # Cuando aclaracion es 'no están en Datalogic', poner 'actualizar' en el campo proveedor
+    comparacion["proveedor"] = comparacion["ruc"]  # Por defecto, el proveedor es el RUC
+    comparacion.loc[comparacion["aclaracion"] == "no están en Datalogic", "proveedor"] = "actualizar"
+
+    # Eliminar la columna fecha_comprobante ya que no la necesitamos
+    comparacion = comparacion.drop(columns=["fecha_comprobante"])
+
     return comparacion
 
 
@@ -96,6 +109,8 @@ def comparar_datalogic_vs_dgi(mes: str, anio: int, empresa: str):
 
     # Procesar
     df = procesar_comparacion_dgi(path_datalogic, path_dgi)
+    
+    # Convertir la columna fecha a string en formato YYYY-MM-DD
     df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.strftime("%Y-%m-%d")
 
     # Subir a la tabla DGI_{empresa}_{año}
