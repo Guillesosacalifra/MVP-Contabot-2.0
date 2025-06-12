@@ -384,13 +384,29 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
     # Determinar si es una consulta de total
     es_consulta_total = parametros.get('template') == 'total_gastos_categoria'
     
+    # Si es una consulta de total y tenemos el valor, dar una respuesta directa
+    if es_consulta_total and datos and 'total' in datos[0]:
+        total = datos[0]['total']
+        return f"El gasto total en {parametros.get('categoria', 'la categoría')} fue de ${total:,.2f}"
+    
+    # Si es una consulta de top gastos, formatear directamente
+    if parametros.get('template') == 'top_gastos' and datos:
+        gastos = []
+        for gasto in datos:
+            fecha = date_parser.parse(gasto['fecha']).strftime('%d/%m/%Y')
+            monto = f"${float(gasto['monto']):,.2f}"
+            descripcion = gasto['descripcion']
+            categoria = gasto['categoria']
+            gastos.append(f"- {fecha}: {monto} ({descripcion}) - {categoria}")
+        
+        return f"Las facturas más costosas son:\n" + "\n".join(gastos)
+    
     prompt = f"""
     Responde esta consulta financiera de manera clara y profesional en español.
 
     PREGUNTA: "{pregunta}"
     DATOS OBTENIDOS: {json.dumps(datos_muestra, indent=2, default=str)}
     TOTAL DE REGISTROS: {total_registros}
-    ES CONSULTA DE TOTAL: {es_consulta_total}
 
     INSTRUCCIONES:
     1. Responde directamente la pregunta
@@ -408,10 +424,10 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
         return response.content.strip()
     except Exception as e:
         print(f"❌ Error formateando respuesta: {e}")
-        # Si es una consulta de total y tenemos el valor, dar una respuesta directa
-        if es_consulta_total and datos and 'total' in datos[0]:
-            total = datos[0]['total']
-            return f"El gasto total en {parametros.get('categoria', 'la categoría')} fue de ${total:,.2f}"
+        # Si tenemos datos pero el LLM falló, dar una respuesta básica
+        if datos:
+            return f"Se encontraron {total_registros} registros. Los primeros registros son:\n" + \
+                   json.dumps(datos_muestra, indent=2, default=str)
         return f"Se encontraron {total_registros} registros, pero hubo un error al formatear la respuesta."
 
 @retry_db_connection(max_retries=3, delay=2)
