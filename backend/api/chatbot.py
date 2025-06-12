@@ -100,6 +100,14 @@ class SQLGenerator:
         
         columnas_str = ", ".join(columnas)
         
+        try:
+            # Convertir datos a JSON de forma segura
+            datos_json = json.dumps(contexto_datos, indent=2, default=str, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️ Error serializando datos: {e}")
+            # Fallback: crear representación manual
+            datos_json = str(contexto_datos)
+        
         prompt = f"""
 Eres un experto en SQL. Genera las consultas SQL necesarias para responder esta pregunta sobre datos financieros.
 
@@ -221,14 +229,24 @@ class ResponseFormatter:
         # Preparar contexto para el LLM
         contexto_datos = []
         for resultado in resultados_sql:
-            if resultado.get('datos'):
-                # Limitar datos para evitar exceso de tokens
-                datos_muestra = resultado['datos'][:15]  # Máximo 15 registros por consulta
-                contexto_datos.append({
-                    'consulta': resultado.get('sql', ''),
-                    'datos': datos_muestra,
-                    'total': resultado.get('total_registros', 0)
-                })
+            datos = resultado.get('datos')
+            if datos and isinstance(datos, list) and len(datos) > 0:
+                try:
+                    # Limitar datos para evitar exceso de tokens - usar slice seguro
+                    datos_muestra = datos[0:15] if len(datos) > 15 else datos
+                    contexto_datos.append({
+                        'consulta': resultado.get('sql', ''),
+                        'datos': datos_muestra,
+                        'total': resultado.get('total_registros', 0)
+                    })
+                except Exception as e:
+                    print(f"⚠️ Error procesando datos del resultado: {e}")
+                    # Fallback seguro
+                    contexto_datos.append({
+                        'consulta': resultado.get('sql', ''),
+                        'datos': [datos[0]] if datos else [],
+                        'total': 1
+                    })
         
         prompt = f"""
 Eres un asistente financiero experto. Responde esta pregunta basándote ÚNICAMENTE en los datos proporcionados.
@@ -236,7 +254,7 @@ Eres un asistente financiero experto. Responde esta pregunta basándote ÚNICAME
 PREGUNTA: "{pregunta}"
 
 DATOS OBTENIDOS:
-{json.dumps(contexto_datos, indent=2, default=str, ensure_ascii=False)}
+{datos_json}
 
 INSTRUCCIONES:
 1. Responde de manera natural y conversacional en español
@@ -269,23 +287,43 @@ RESPUESTA:
     def _generar_respuesta_fallback(self, resultados_sql: List[Dict], pregunta: str) -> str:
         """Genera una respuesta básica cuando el LLM falla"""
         
-        total_registros = sum(r.get('total_registros', 0) for r in resultados_sql)
+        if not resultados_sql:
+            return "No se encontraron datos para tu consulta."
+        
+        total_registros = sum(r.get('total_registros', 0) for r in resultados_sql if isinstance(r.get('total_registros'), int))
         
         if total_registros == 0:
             return "No se encontraron registros para tu consulta."
         
-        # Intentar extraer información básica
+        # Intentar extraer información básica de forma segura
         respuesta_partes = [f"Encontré {total_registros} registros relacionados con tu consulta."]
         
         for resultado in resultados_sql:
             datos = resultado.get('datos', [])
-            if datos:
-                primer_registro = datos[0]
-                if 'total' in primer_registro:
-                    total = float(primer_registro['total'] or 0)
-                    respuesta_partes.append(f"El total es ${total:,.2f}")
-                elif 'monto' in primer_registro:
-                    respuesta_partes.append(f"El primer registro muestra un monto de ${float(primer_registro['monto'] or 0):,.2f}")
+            if isinstance(datos, list) and len(datos) > 0:
+                try:
+                    primer_registro = datos[0]
+                    if isinstance(primer_registro, dict):
+                        # Buscar campos de total
+                        for key, value in primer_registro.items():
+                            if 'total' in key.lower() and value is not None:
+                                try:
+                                    total = float(value)
+                                    respuesta_partes.append(f"El total es ${total:,.2f}")
+                                    break
+                                except (ValueError, TypeError):
+                                    continue
+                        
+                        # Si no hay total, buscar monto
+                        if len(respuesta_partes) == 1 and 'monto' in primer_registro:
+                            try:
+                                monto = float(primer_registro['monto'] or 0)
+                                respuesta_partes.append(f"Se encontró un monto de ${monto:,.2f}")
+                            except (ValueError, TypeError):
+                                pass
+                except Exception as e:
+                    print(f"⚠️ Error procesando primer registro: {e}")
+                    continue
         
         return " ".join(respuesta_partes)
 
