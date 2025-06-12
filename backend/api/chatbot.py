@@ -371,6 +371,39 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
     if not datos:
         return "No se encontraron registros para esa consulta."
     
+    # Determinar si es una consulta de total
+    es_consulta_total = parametros.get('template') == 'total_gastos_categoria'
+    
+    # Si es una consulta de total y tenemos el valor, dar una respuesta directa
+    if es_consulta_total and datos and 'total' in datos[0]:
+        total = float(datos[0]['total'] or 0)
+        if total == 0:
+            return f"No se registraron gastos en {parametros.get('categoria', 'la categoría')} para el período especificado."
+        return f"El gasto total en {parametros.get('categoria', 'la categoría')} fue de ${total:,.2f}"
+    
+    # Si es una consulta de top gastos, formatear directamente
+    if parametros.get('template') == 'top_gastos' and datos:
+        if not any(float(gasto.get('monto', 0)) > 0 for gasto in datos):
+            return "No se encontraron gastos significativos en el período especificado."
+            
+        gastos = []
+        for gasto in datos:
+            try:
+                fecha = date_parser.parse(gasto['fecha']).strftime('%d/%m/%Y')
+                monto = float(gasto['monto'] or 0)
+                if monto > 0:  # Solo incluir gastos mayores a 0
+                    descripcion = gasto.get('descripcion', 'Sin descripción')
+                    categoria = gasto.get('categoria', 'Sin categoría')
+                    gastos.append(f"- {fecha}: ${monto:,.2f} ({descripcion}) - {categoria}")
+            except (ValueError, KeyError) as e:
+                print(f"⚠️ Error formateando gasto: {e}")
+                continue
+        
+        if not gastos:
+            return "No se encontraron gastos significativos en el período especificado."
+            
+        return f"Las facturas más costosas son:\n" + "\n".join(gastos)
+    
     llm = ChatOpenAI(
         openai_api_key=OPENAI_API_KEY,
         model_name="gpt-4o-mini",
@@ -380,26 +413,6 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
     # Limitar datos para el prompt (para evitar tokens excesivos)
     datos_muestra = datos[:20] if len(datos) > 20 else datos
     total_registros = len(datos)
-    
-    # Determinar si es una consulta de total
-    es_consulta_total = parametros.get('template') == 'total_gastos_categoria'
-    
-    # Si es una consulta de total y tenemos el valor, dar una respuesta directa
-    if es_consulta_total and datos and 'total' in datos[0]:
-        total = datos[0]['total']
-        return f"El gasto total en {parametros.get('categoria', 'la categoría')} fue de ${total:,.2f}"
-    
-    # Si es una consulta de top gastos, formatear directamente
-    if parametros.get('template') == 'top_gastos' and datos:
-        gastos = []
-        for gasto in datos:
-            fecha = date_parser.parse(gasto['fecha']).strftime('%d/%m/%Y')
-            monto = f"${float(gasto['monto']):,.2f}"
-            descripcion = gasto['descripcion']
-            categoria = gasto['categoria']
-            gastos.append(f"- {fecha}: {monto} ({descripcion}) - {categoria}")
-        
-        return f"Las facturas más costosas son:\n" + "\n".join(gastos)
     
     prompt = f"""
     Responde esta consulta financiera de manera clara y profesional en español.
@@ -415,6 +428,7 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
     4. Usa fechas legibles (ej: "mayo 2025")
     5. Sé conciso pero completo
     6. NO menciones código SQL ni técnico
+    7. Si el total es 0 o no hay gastos, indícalo claramente
 
     RESPUESTA:
     """
@@ -426,6 +440,9 @@ def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: s
         print(f"❌ Error formateando respuesta: {e}")
         # Si tenemos datos pero el LLM falló, dar una respuesta básica
         if datos:
+            # Verificar si todos los valores son 0 o nulos
+            if all(float(d.get('monto', 0) or 0) == 0 for d in datos):
+                return "No se registraron gastos en el período especificado."
             return f"Se encontraron {total_registros} registros. Los primeros registros son:\n" + \
                    json.dumps(datos_muestra, indent=2, default=str)
         return f"Se encontraron {total_registros} registros, pero hubo un error al formatear la respuesta."
