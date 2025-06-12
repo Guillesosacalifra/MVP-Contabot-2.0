@@ -12,7 +12,6 @@ from functools import wraps
 from typing import List, Optional, Any, Dict
 import json
 import re
-from dateutil import parser as date_parser
 
 # Decorador para reintentos
 def retry_db_connection(max_retries=3, delay=1):
@@ -56,456 +55,296 @@ class ConsultaRequest(BaseModel):
 class Respuesta(BaseModel):
     respuesta: str
 
-# Templates SQL seguros - Define aquí todas las consultas posibles
-SQL_TEMPLATES = {
-    "gastos_por_categoria": """
-        SELECT 
-            categoria,
-            SUM(monto) as total_gastado,
-            COUNT(*) as cantidad_transacciones
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        AND categoria ILIKE '%{categoria}%'
-        GROUP BY categoria
-        ORDER BY total_gastado DESC
-    """,
-    
-    "gastos_por_periodo": """
-        SELECT 
-            DATE(fecha) as fecha,
-            descripcion,
-            categoria,
-            monto
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        AND categoria ILIKE '%{categoria}%'
-        ORDER BY fecha DESC, monto DESC
-    """,
-    
-    "total_gastos_categoria": """
-        SELECT 
-            SUM(monto) as total
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        AND categoria ILIKE '%{categoria}%'
-    """,
-    
-    "gastos_mensuales": """
-        SELECT 
-            EXTRACT(MONTH FROM fecha) as mes,
-            EXTRACT(YEAR FROM fecha) as año,
-            SUM(monto) as total_mes
-        FROM {tabla}
-        WHERE EXTRACT(YEAR FROM fecha) = {año}
-        AND categoria ILIKE '%{categoria}%'
-        GROUP BY EXTRACT(YEAR FROM fecha), EXTRACT(MONTH FROM fecha)
-        ORDER BY año, mes
-    """,
-    
-    "top_gastos": """
-        SELECT 
-            fecha,
-            descripcion,
-            categoria,
-            monto
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        ORDER BY monto DESC
-        LIMIT {limite}
-    """,
-    
-    "buscar_descripcion": """
-        SELECT 
-            fecha,
-            descripcion,
-            categoria,
-            monto
-        FROM {tabla}
-        WHERE descripcion ILIKE '%{termino}%'
-        AND DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        ORDER BY fecha DESC
-    """,
-    
-    "gastos_por_proveedor": """
-        SELECT 
-            proveedor,
-            SUM(monto) as total_gastado,
-            COUNT(*) as cantidad_transacciones,
-            AVG(monto) as promedio_gasto
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        AND proveedor ILIKE '%{proveedor}%'
-        GROUP BY proveedor
-        ORDER BY total_gastado DESC
-    """,
-    
-    "comparativa_mensual": """
-        SELECT 
-            EXTRACT(MONTH FROM fecha) as mes,
-            EXTRACT(YEAR FROM fecha) as año,
-            SUM(monto) as total_mes,
-            LAG(SUM(monto)) OVER (ORDER BY EXTRACT(YEAR FROM fecha), EXTRACT(MONTH FROM fecha)) as mes_anterior,
-            ROUND(((SUM(monto) - LAG(SUM(monto)) OVER (ORDER BY EXTRACT(YEAR FROM fecha), EXTRACT(MONTH FROM fecha))) / 
-                   NULLIF(LAG(SUM(monto)) OVER (ORDER BY EXTRACT(YEAR FROM fecha), EXTRACT(MONTH FROM fecha)), 0) * 100), 2) as variacion_porcentual
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        GROUP BY EXTRACT(YEAR FROM fecha), EXTRACT(MONTH FROM fecha)
-        ORDER BY año, mes
-    """,
-    
-    "comparativa_semanal": """
-        SELECT 
-            EXTRACT(WEEK FROM fecha) as semana,
-            EXTRACT(YEAR FROM fecha) as año,
-            DATE_TRUNC('week', fecha) as inicio_semana,
-            SUM(monto) as total_semana,
-            COUNT(*) as transacciones_semana
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        GROUP BY EXTRACT(YEAR FROM fecha), EXTRACT(WEEK FROM fecha), DATE_TRUNC('week', fecha)
-        ORDER BY año, semana
-    """,
-    
-    "comparativa_diaria": """
-        SELECT 
-            DATE(fecha) as dia,
-            SUM(monto) as total_dia,
-            COUNT(*) as transacciones_dia,
-            STRING_AGG(DISTINCT categoria, ', ') as categorias
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        GROUP BY DATE(fecha)
-        ORDER BY dia DESC
-    """,
-    
-    "gastos_por_moneda": """
-        SELECT 
-            moneda,
-            SUM(monto) as total_por_moneda,
-            COUNT(*) as cantidad_transacciones,
-            AVG(monto) as promedio_monto,
-            MIN(monto) as monto_minimo,
-            MAX(monto) as monto_maximo
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        AND moneda ILIKE '%{moneda}%'
-        GROUP BY moneda
-        ORDER BY total_por_moneda DESC
-    """,
-    
-    "top_proveedores": """
-        SELECT 
-            proveedor,
-            SUM(monto) as total_gastado,
-            COUNT(*) as cantidad_compras,
-            AVG(monto) as ticket_promedio,
-            MAX(fecha) as ultima_compra
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-        GROUP BY proveedor
-        ORDER BY total_gastado DESC
-        LIMIT {limite}
-    """,
-    
-    "resumen_periodo": """
-        SELECT 
-            COUNT(*) as total_transacciones,
-            SUM(monto) as total_gastado,
-            AVG(monto) as promedio_transaccion,
-            COUNT(DISTINCT categoria) as categorias_diferentes,
-            COUNT(DISTINCT proveedor) as proveedores_diferentes,
-            MIN(fecha) as fecha_inicio,
-            MAX(fecha) as fecha_fin
-        FROM {tabla}
-        WHERE DATE(fecha) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
-    """
-}
+def validar_nombre_tabla(tabla: str) -> bool:
+    """Valida que el nombre de tabla sea seguro"""
+    patron = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+    return bool(patron.match(tabla))
 
-class QueryAnalyzer:
-    """Analiza consultas y las mapea a templates SQL seguros"""
+def obtener_columnas_tabla(tabla: str) -> List[str]:
+    """Obtiene las columnas de la tabla para generar SQL más precisos"""
+    try:
+        # Consulta simple para obtener la estructura
+        response = supabase.rpc('execute_sql', {
+            'sql_query': f'SELECT column_name FROM information_schema.columns WHERE table_name = \'{tabla}\' ORDER BY ordinal_position'
+        }).execute()
+        
+        if response.data:
+            columnas = [row['column_name'] for row in response.data]
+            print(f"[INFO] Columnas de {tabla}: {columnas}")
+            return columnas
+        else:
+            # Fallback: intentar obtener columnas con LIMIT 1
+            response = supabase.rpc('execute_sql', {
+                'sql_query': f'SELECT * FROM {tabla} LIMIT 1'
+            }).execute()
+            if response.data and len(response.data) > 0:
+                return list(response.data[0].keys())
+    except Exception as e:
+        print(f"⚠️ Error obteniendo columnas: {e}")
+    
+    # Columnas por defecto comunes
+    return ['id', 'fecha', 'descripcion', 'categoria', 'monto', 'proveedor', 'moneda']
+
+class SQLGenerator:
+    """Generador de consultas SQL inteligente"""
     
     def __init__(self, openai_api_key: str):
         self.llm = ChatOpenAI(
             openai_api_key=openai_api_key,
             model_name="gpt-4o-mini",
-            temperature=0
+            temperature=0.1
         )
     
-    def extraer_parametros(self, pregunta: str, año: int) -> Dict:
-        """Extrae parámetros estructurados de la pregunta del usuario"""
+    def generar_consultas_sql(self, pregunta: str, tabla: str, año: int, columnas: List[str]) -> List[str]:
+        """Genera una o más consultas SQL necesarias para responder la pregunta"""
+        
+        columnas_str = ", ".join(columnas)
         
         prompt = f"""
-        Analiza esta consulta financiera y extrae los parámetros exactos.
+Eres un experto en SQL. Genera las consultas SQL necesarias para responder esta pregunta sobre datos financieros.
 
-        PREGUNTA: "{pregunta}"
-        AÑO CONTEXTO: {año}
+PREGUNTA: "{pregunta}"
+TABLA: {tabla}
+COLUMNAS DISPONIBLES: {columnas_str}
+AÑO CONTEXTO: {año}
 
-        Extrae ÚNICAMENTE estos parámetros en formato JSON:
-        {{
-            "template": "nombre_del_template_mas_apropiado",
-            "categoria": "categoria_si_se_menciona_o_null",
-            "proveedor": "proveedor_si_se_menciona_o_null",
-            "moneda": "moneda_si_se_menciona_o_null",
-            "fecha_inicio": "YYYY-MM-DD",
-            "fecha_fin": "YYYY-MM-DD", 
-            "termino_busqueda": "termino_si_busca_descripcion_o_null",
-            "limite": 10,
-            "año": {año},
-            "tipo_consulta": "suma|detalle|top|busqueda|mensual|semanal|diario|proveedor|moneda|comparativa"
-        }}
+REGLAS IMPORTANTES:
+1. Genera SOLO las consultas SQL necesarias, una por línea
+2. NO uses markdown ni explicaciones, solo SQL puro
+3. Usa nombres de columna exactos de la lista proporcionada
+4. Para fechas, usa formato YYYY-MM-DD
+5. Si no se especifica período, usa todo el año {año}
+6. Usa ILIKE para comparaciones de texto (insensible a mayúsculas)
+7. Para montos, siempre usa SUM(), AVG(), etc. con nombres descriptivos
+8. Usa LIMIT solo cuando sea apropiado (top, mejores, etc.)
+9. Para períodos de tiempo, usa DATE() para comparaciones
+10. Si necesitas múltiples consultas para una respuesta completa, sepáralas con líneas
 
-        TEMPLATES DISPONIBLES:
-        - gastos_por_categoria: Para agrupar gastos por categoría
-        - gastos_por_periodo: Para listar gastos en un período
-        - total_gastos_categoria: Para sumar total de una categoría
-        - gastos_mensuales: Para gastos agrupados por mes
-        - top_gastos: Para los gastos más altos
-        - buscar_descripcion: Para buscar por descripción
-        - gastos_por_proveedor: Para agrupar gastos por proveedor
-        - comparativa_mensual: Para comparar gastos entre meses
-        - comparativa_semanal: Para comparar gastos por semanas
-        - comparativa_diaria: Para comparar gastos por días
-        - gastos_por_moneda: Para agrupar gastos por moneda
-        - top_proveedores: Para los proveedores con más gastos
-        - resumen_periodo: Para resumen general de un período
+EJEMPLOS DE CONSULTAS TÍPICAS:
+- SELECT categoria, SUM(monto) as total FROM tabla WHERE EXTRACT(YEAR FROM fecha) = 2024 GROUP BY categoria ORDER BY total DESC;
+- SELECT COUNT(*) as total_transacciones, SUM(monto) as total_gastado FROM tabla WHERE fecha >= '2024-01-01' AND fecha <= '2024-12-31';
+- SELECT descripcion, monto, fecha FROM tabla WHERE categoria ILIKE '%combustible%' ORDER BY monto DESC LIMIT 5;
 
-        REGLAS:
-        - Si menciona un mes (marzo, abril, etc), usa ese mes del año {año}
-        - Si no especifica fechas, usa todo el año {año}
-        - Para categorías como "combustible", usa "combustible" (sin tildes ni mayúsculas)
-        - Fechas siempre en formato YYYY-MM-DD
-        - Si pregunta por total/cuanto gastó, usa "total_gastos_categoria"
-        - Si pregunta por detalles/listado, usa "gastos_por_periodo"
-        - SIEMPRE incluye limite con un número, no null
-
-        RESPONDE SOLO EL JSON:
-        """
+RESPONDE SOLO LAS CONSULTAS SQL:
+"""
         
         try:
             response = self.llm.invoke([HumanMessage(content=prompt)])
-            contenido = response.content.strip()
+            sql_content = response.content.strip()
             
-            # Limpiar respuesta
-            if contenido.startswith('```json'):
-                contenido = contenido[7:-3]
-            elif contenido.startswith('```'):
-                contenido = contenido[3:-3]
+            # Limpiar y separar consultas
+            consultas = []
+            for linea in sql_content.split('\n'):
+                linea = linea.strip()
+                if linea and not linea.startswith('--') and not linea.startswith('#'):
+                    # Limpiar markdown si existe
+                    if linea.startswith('```'):
+                        continue
+                    if linea.endswith('```'):
+                        continue
+                    
+                    # Reemplazar placeholder de tabla
+                    if '{tabla}' in linea:
+                        linea = linea.replace('{tabla}', tabla)
+                    elif 'tabla' in linea and tabla not in linea:
+                        linea = linea.replace('tabla', tabla)
+                    
+                    if linea.upper().startswith('SELECT'):
+                        consultas.append(linea)
             
-            parametros = json.loads(contenido)
+            if not consultas:
+                # Fallback: consulta básica
+                consultas = [f"SELECT * FROM {tabla} WHERE EXTRACT(YEAR FROM fecha) = {año} LIMIT 10"]
             
-            # Asegurar que año y limite siempre tengan valores válidos
-            parametros['año'] = año
-            if parametros.get('limite') is None:
-                parametros['limite'] = 10
-                
-            return parametros
+            print(f"[SQL] Consultas generadas: {consultas}")
+            return consultas
             
         except Exception as e:
-            print(f"❌ Error extrayendo parámetros: {e}")
-            # Fallback básico
-            return {
-                "template": "total_gastos_categoria",
-                "categoria": "combustible",
-                "fecha_inicio": f"{año}-01-01",
-                "fecha_fin": f"{año}-12-31",
-                "termino_busqueda": None,
-                "limite": 10,
-                "año": año,
-                "tipo_consulta": "suma"
-            }
-
-def construir_sql_seguro(template_name: str, parametros: Dict, tabla: str) -> str:
-    """Construye SQL usando templates seguros"""
-    
-    if template_name not in SQL_TEMPLATES:
-        template_name = "gastos_por_periodo"  # Fallback
-    
-    template = SQL_TEMPLATES[template_name]
-    
-    # Sanitizar parámetros con valores por defecto seguros
-    limite_valor = parametros.get('limite')
-    if limite_valor is None:
-        limite_valor = 10
-    limite_valor = min(int(limite_valor), 100)
-    
-    año_valor = parametros.get('año')
-    if año_valor is None:
-        año_valor = 2025
-    año_valor = int(año_valor)
-    
-    params_seguros = {
-        'tabla': tabla,  # Validado previamente
-        'fecha_inicio': parametros.get('fecha_inicio', '2025-01-01'),
-        'fecha_fin': parametros.get('fecha_fin', '2025-12-31'),
-        'categoria': (parametros.get('categoria') or '').replace("'", "''"),  # Escape SQL
-        'proveedor': (parametros.get('proveedor') or '').replace("'", "''"),
-        'moneda': (parametros.get('moneda') or '').replace("'", "''"),
-        'termino': (parametros.get('termino_busqueda') or '').replace("'", "''"),
-        'año': año_valor,
-        'limite': limite_valor
-    }
-    
-    try:
-        sql = template.format(**params_seguros)
-        print(f"[SQL] Consulta generada: {sql}")
-        return sql
-    except Exception as e:
-        print(f"❌ Error construyendo SQL: {e}")
-        # Fallback seguro
-        return f"SELECT * FROM {tabla} LIMIT 10"
+            print(f"❌ Error generando SQL: {e}")
+            return [f"SELECT * FROM {tabla} WHERE EXTRACT(YEAR FROM fecha) = {año} LIMIT 10"]
 
 @retry_db_connection(max_retries=3, delay=2)
-def ejecutar_sql_supabase(sql: str) -> List[Dict]:
-    """Ejecuta SQL usando la función RPC de Supabase"""
-    try:
-        # Usar la función SQL personalizada de Supabase
-        response = supabase.rpc('execute_sql', {'sql_query': sql}).execute()
-        return response.data or []
-    except Exception as e:
-        print(f"❌ Error ejecutando SQL: {e}")
-        return []
-
-def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: str) -> str:
-    """Convierte los datos SQL en respuesta natural"""
+def ejecutar_consultas_sql(consultas: List[str]) -> List[Dict]:
+    """Ejecuta múltiples consultas SQL y retorna todos los resultados"""
+    todos_los_datos = []
     
-    if not datos:
-        return "No se encontraron registros para esa consulta."
-    
-    # Determinar si es una consulta de total
-    es_consulta_total = parametros.get('template') == 'total_gastos_categoria'
-    
-    # Si es una consulta de total y tenemos el valor, dar una respuesta directa
-    if es_consulta_total and datos and 'total' in datos[0]:
-        total = float(datos[0]['total'] or 0)
-        if total == 0:
-            return f"No se registraron gastos en {parametros.get('categoria', 'la categoría')} para el período especificado."
-        return f"El gasto total en {parametros.get('categoria', 'la categoría')} fue de ${total:,.2f}"
-    
-    # Si es una consulta de top gastos, formatear directamente
-    if parametros.get('template') == 'top_gastos' and datos:
-        if not any(float(gasto.get('monto', 0)) > 0 for gasto in datos):
-            return "No se encontraron gastos significativos en el período especificado."
+    for i, sql in enumerate(consultas):
+        try:
+            print(f"[SQL] Ejecutando consulta {i+1}: {sql}")
+            response = supabase.rpc('execute_sql', {'sql_query': sql}).execute()
             
-        gastos = []
-        for gasto in datos:
-            try:
-                fecha = date_parser.parse(gasto['fecha']).strftime('%d/%m/%Y')
-                monto = float(gasto['monto'] or 0)
-                if monto > 0:  # Solo incluir gastos mayores a 0
-                    descripcion = gasto.get('descripcion', 'Sin descripción')
-                    categoria = gasto.get('categoria', 'Sin categoría')
-                    gastos.append(f"- {fecha}: ${monto:,.2f} ({descripcion}) - {categoria}")
-            except (ValueError, KeyError) as e:
-                print(f"⚠️ Error formateando gasto: {e}")
-                continue
+            if response.data:
+                datos = response.data
+                todos_los_datos.append({
+                    'consulta_num': i + 1,
+                    'sql': sql,
+                    'datos': datos,
+                    'total_registros': len(datos)
+                })
+                print(f"[SQL] Consulta {i+1} retornó {len(datos)} registros")
+            else:
+                print(f"[SQL] Consulta {i+1} sin resultados")
+                
+        except Exception as e:
+            print(f"❌ Error en consulta {i+1}: {e}")
+            todos_los_datos.append({
+                'consulta_num': i + 1,
+                'sql': sql,
+                'datos': [],
+                'error': str(e)
+            })
+    
+    return todos_los_datos
+
+class ResponseFormatter:
+    """Formateador de respuestas naturales"""
+    
+    def __init__(self, openai_api_key: str):
+        self.llm = ChatOpenAI(
+            openai_api_key=openai_api_key,
+            model_name="gpt-4o-mini",
+            temperature=0.3
+        )
+    
+    def formatear_respuesta(self, pregunta: str, resultados_sql: List[Dict]) -> str:
+        """Convierte resultados SQL en respuesta natural"""
         
-        if not gastos:
-            return "No se encontraron gastos significativos en el período especificado."
+        if not resultados_sql:
+            return "No se pudieron obtener datos para responder tu consulta."
+        
+        # Verificar si hay datos válidos
+        hay_datos = any(r.get('datos') and len(r['datos']) > 0 for r in resultados_sql)
+        
+        if not hay_datos:
+            return "No se encontraron registros que coincidan con tu consulta."
+        
+        # Preparar contexto para el LLM
+        contexto_datos = []
+        for resultado in resultados_sql:
+            if resultado.get('datos'):
+                # Limitar datos para evitar exceso de tokens
+                datos_muestra = resultado['datos'][:15]  # Máximo 15 registros por consulta
+                contexto_datos.append({
+                    'consulta': resultado.get('sql', ''),
+                    'datos': datos_muestra,
+                    'total': resultado.get('total_registros', 0)
+                })
+        
+        prompt = f"""
+Eres un asistente financiero experto. Responde esta pregunta basándote ÚNICAMENTE en los datos proporcionados.
+
+PREGUNTA: "{pregunta}"
+
+DATOS OBTENIDOS:
+{json.dumps(contexto_datos, indent=2, default=str, ensure_ascii=False)}
+
+INSTRUCCIONES:
+1. Responde de manera natural y conversacional en español
+2. Sé específico con números y fechas
+3. Formatea montos como $1,234.56 (usar comas para miles)
+4. Si hay múltiples consultas, integra toda la información coherentemente
+5. No menciones "consultas SQL" ni aspectos técnicos
+6. Si los datos muestran $0 o valores vacíos, indícalo claramente
+7. Usa fechas legibles (ej: "enero 2024" en lugar de "2024-01-01")
+8. Sé conciso pero completo
+9. Si hay datos de diferentes períodos o categorías, organiza la información claramente
+
+RESPUESTA:
+"""
+        
+        try:
+            response = self.llm.invoke([HumanMessage(content=prompt)])
+            respuesta = response.content.strip()
             
-        return f"Las facturas más costosas son:\n" + "\n".join(gastos)
+            # Verificar si la respuesta es muy genérica y mejorarla
+            if len(respuesta) < 50 or "no puedo" in respuesta.lower():
+                return self._generar_respuesta_fallback(resultados_sql, pregunta)
+            
+            return respuesta
+            
+        except Exception as e:
+            print(f"❌ Error formateando respuesta: {e}")
+            return self._generar_respuesta_fallback(resultados_sql, pregunta)
     
-    llm = ChatOpenAI(
-        openai_api_key=OPENAI_API_KEY,
-        model_name="gpt-4o-mini",
-        temperature=0
-    )
-    
-    # Limitar datos para el prompt (para evitar tokens excesivos)
-    datos_muestra = datos[:20] if len(datos) > 20 else datos
-    total_registros = len(datos)
-    
-    prompt = f"""
-    Responde esta consulta financiera de manera clara y profesional en español.
+    def _generar_respuesta_fallback(self, resultados_sql: List[Dict], pregunta: str) -> str:
+        """Genera una respuesta básica cuando el LLM falla"""
+        
+        total_registros = sum(r.get('total_registros', 0) for r in resultados_sql)
+        
+        if total_registros == 0:
+            return "No se encontraron registros para tu consulta."
+        
+        # Intentar extraer información básica
+        respuesta_partes = [f"Encontré {total_registros} registros relacionados con tu consulta."]
+        
+        for resultado in resultados_sql:
+            datos = resultado.get('datos', [])
+            if datos:
+                primer_registro = datos[0]
+                if 'total' in primer_registro:
+                    total = float(primer_registro['total'] or 0)
+                    respuesta_partes.append(f"El total es ${total:,.2f}")
+                elif 'monto' in primer_registro:
+                    respuesta_partes.append(f"El primer registro muestra un monto de ${float(primer_registro['monto'] or 0):,.2f}")
+        
+        return " ".join(respuesta_partes)
 
-    PREGUNTA: "{pregunta}"
-    DATOS OBTENIDOS: {json.dumps(datos_muestra, indent=2, default=str)}
-    TOTAL DE REGISTROS: {total_registros}
-
-    INSTRUCCIONES:
-    1. Responde directamente la pregunta
-    2. Formatea montos como $1,234.56
-    3. Si hay muchos registros, resume los principales
-    4. Usa fechas legibles (ej: "mayo 2025")
-    5. Sé conciso pero completo
-    6. NO menciones código SQL ni técnico
-    7. Si el total es 0 o no hay gastos, indícalo claramente
-
-    RESPUESTA:
-    """
-    
-    try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        return response.content.strip()
-    except Exception as e:
-        print(f"❌ Error formateando respuesta: {e}")
-        # Si tenemos datos pero el LLM falló, dar una respuesta básica
-        if datos:
-            # Verificar si todos los valores son 0 o nulos
-            if all(float(d.get('monto', 0) or 0) == 0 for d in datos):
-                return "No se registraron gastos en el período especificado."
-            return f"Se encontraron {total_registros} registros. Los primeros registros son:\n" + \
-                   json.dumps(datos_muestra, indent=2, default=str)
-        return f"Se encontraron {total_registros} registros, pero hubo un error al formatear la respuesta."
-
+# Funciones principales
 @retry_db_connection(max_retries=3, delay=2)
-def obtener_historial_usuario(usuario: str, limite: int = 5):
+def guardar_historial(usuario: str, pregunta: str, respuesta: str):
+    """Guarda la conversación en el historial"""
     try:
-        response = supabase.table('historial_chat')\
-            .select('pregunta, respuesta')\
-            .eq('usuario', usuario)\
-            .order('fecha', desc=True)\
-            .limit(limite)\
-            .execute()
-        return response.data
+        fecha_actual = datetime.utcnow().isoformat()
+        supabase.table('historial_chat').insert({
+            'fecha': fecha_actual,
+            'usuario': usuario,
+            'pregunta': pregunta,
+            'respuesta': respuesta
+        }).execute()
     except Exception as e:
-        print(f"⚠️ Error al obtener historial de {usuario}: {e}")
-        return []
+        print(f"⚠️ Error guardando historial: {e}")
 
 # Endpoint principal
 @router.post("/consultar", response_model=Respuesta)
 def consultar_datos(request: ConsultaRequest):
-    print(f"[Backend] Recibida consulta de {request.usuario}: {request.pregunta}")
-    print(f"[Backend] Usando tabla: {request.tabla_datos}")
+    print(f"[Backend] Nueva consulta de {request.usuario}: {request.pregunta}")
+    print(f"[Backend] Tabla: {request.tabla_datos}, Año: {request.año}")
     
     try:
-        # 1. Analizar la consulta y extraer parámetros
-        analyzer = QueryAnalyzer(OPENAI_API_KEY)
-        parametros = analyzer.extraer_parametros(request.pregunta, request.año)
+        # 1. Validar tabla
+        if not validar_nombre_tabla(request.tabla_datos):
+            return Respuesta(respuesta="Nombre de tabla no válido")
         
-        print(f"[Backend] Parámetros extraídos: {parametros}")
+        # 2. Obtener estructura de la tabla
+        columnas = obtener_columnas_tabla(request.tabla_datos)
+        print(f"[Backend] Columnas disponibles: {columnas}")
         
-        # 2. Construir SQL seguro usando templates
-        sql = construir_sql_seguro(
-            parametros['template'], 
-            parametros, 
-            request.tabla_datos
+        # 3. Generar consultas SQL necesarias
+        sql_generator = SQLGenerator(OPENAI_API_KEY)
+        consultas_sql = sql_generator.generar_consultas_sql(
+            request.pregunta, 
+            request.tabla_datos, 
+            request.año,
+            columnas
         )
         
-        # 3. Ejecutar SQL real
-        datos = ejecutar_sql_supabase(sql)
+        # 4. Ejecutar todas las consultas
+        resultados = ejecutar_consultas_sql(consultas_sql)
         
-        print(f"[Backend] Registros encontrados: {len(datos)}")
+        # 5. Formatear respuesta natural
+        formatter = ResponseFormatter(OPENAI_API_KEY)
+        respuesta_final = formatter.formatear_respuesta(request.pregunta, resultados)
         
-        # 4. Formatear respuesta natural
-        respuesta_final = formatear_respuesta_natural(datos, parametros, request.pregunta)
+        # 6. Guardar en historial
+        guardar_historial(request.usuario, request.pregunta, respuesta_final)
         
-        # 5. Guardar en historial
-        try:
-            fecha_actual = datetime.utcnow().isoformat()
-            supabase.table('historial_chat').insert({
-                'fecha': fecha_actual,
-                'usuario': request.usuario,
-                'pregunta': request.pregunta,
-                'respuesta': respuesta_final
-            }).execute()
-        except Exception as e:
-            print(f"⚠️ Error al guardar en historial: {e}")
-        
+        print(f"[Backend] Respuesta generada: {respuesta_final[:100]}...")
         return Respuesta(respuesta=respuesta_final)
         
     except Exception as e:
-        print(f"❌ Error en consulta: {e}")
-        return Respuesta(respuesta=f"Error procesando la consulta: {str(e)}")
+        error_msg = f"Error procesando la consulta: {str(e)}"
+        print(f"❌ {error_msg}")
+        return Respuesta(respuesta="Lo siento, hubo un problema procesando tu consulta. Por favor intenta de nuevo.")
 
 @router.options("/consultar")
 async def consultar_options():
