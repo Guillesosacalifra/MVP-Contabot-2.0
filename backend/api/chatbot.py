@@ -12,6 +12,7 @@ from functools import wraps
 from typing import List, Optional, Any, Dict
 import json
 import re
+from dateutil import parser as date_parser
 
 # Decorador para reintentos
 def retry_db_connection(max_retries=3, delay=1):
@@ -247,6 +248,14 @@ class ResponseFormatter:
                         'datos': [datos[0]] if datos else [],
                         'total': 1
                     })
+
+        try:
+            # Convertir datos a JSON de forma segura
+            datos_json = json.dumps(contexto_datos, indent=2, default=str, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️ Error serializando datos: {e}")
+            # Fallback: crear representación manual
+            datos_json = str(contexto_datos)
         
         prompt = f"""
 Eres un asistente financiero experto. Responde esta pregunta basándote ÚNICAMENTE en los datos proporcionados.
@@ -387,3 +396,168 @@ def consultar_datos(request: ConsultaRequest):
 @router.options("/consultar")
 async def consultar_options():
     return JSONResponse(content={})
+
+def formatear_respuesta_natural(datos: List[Dict], parametros: Dict, pregunta: str) -> str:
+    """Convierte los datos SQL en respuesta natural"""
+    
+    if not datos:
+        return "No se encontraron registros para esa consulta."
+    
+    # Determinar si es una consulta de total
+    es_consulta_total = parametros.get('template') == 'total_gastos_categoria'
+    
+    # Si es una consulta de total y tenemos el valor, dar una respuesta directa
+    if es_consulta_total and datos and 'total' in datos[0]:
+        total = float(datos[0]['total'] or 0)
+        if total == 0:
+            return f"No se registraron gastos en {parametros.get('categoria', 'la categoría')} para el período especificado."
+        return f"El gasto total en {parametros.get('categoria', 'la categoría')} fue de ${total:,.2f}"
+    
+    # Si es una consulta de top gastos, formatear directamente
+    if parametros.get('template') == 'top_gastos' and datos:
+        if not any(float(gasto.get('monto', 0)) > 0 for gasto in datos):
+            return "No se encontraron gastos significativos en el período especificado."
+            
+        gastos = []
+        for gasto in datos:
+            try:
+                fecha = date_parser.parse(gasto['fecha']).strftime('%d/%m/%Y')
+                monto = float(gasto['monto'] or 0)
+                if monto > 0:  # Solo incluir gastos mayores a 0
+                    descripcion = gasto.get('descripcion', 'Sin descripción')
+                    categoria = gasto.get('categoria', 'Sin categoría')
+                    gastos.append(f"- {fecha}: ${monto:,.2f} ({descripcion}) - {categoria}")
+            except (ValueError, KeyError) as e:
+                print(f"⚠️ Error formateando gasto: {e}")
+                continue
+        
+        if not gastos:
+            return "No se encontraron gastos significativos en el período especificado."
+            
+        return f"Las facturas más costosas son:\n" + "\n".join(gastos)
+    
+    llm = ChatOpenAI(
+        openai_api_key=OPENAI_API_KEY,
+        model_name="gpt-4o-mini",
+        temperature=0
+    )
+    
+    # Limitar datos para el prompt (para evitar tokens excesivos)
+    datos_muestra = datos[:20] if len(datos) > 20 else datos
+    total_registros = len(datos)
+    
+    prompt = f"""
+    Responde esta consulta financiera de manera clara y profesional en español.
+
+    PREGUNTA: "{pregunta}"
+    DATOS OBTENIDOS: {json.dumps(datos_muestra, indent=2, default=str, ensure_ascii=False)}
+    TOTAL DE REGISTROS: {total_registros}
+
+    INSTRUCCIONES:
+    1. Responde directamente la pregunta
+    2. Formatea montos como $1,234.56
+    3. Si hay muchos registros, resume los principales
+    4. Usa fechas legibles (ej: "mayo 2025")
+    5. Sé conciso pero completo
+    6. NO menciones código SQL ni técnico
+    7. Si el total es 0 o no hay gastos, indícalo claramente
+
+    RESPUESTA:
+    """
+    
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        return response.content.strip()
+    except Exception as e:
+        print(f"❌ Error formateando respuesta: {e}")
+        # Si tenemos datos pero el LLM falló, dar una respuesta básica
+        if datos:
+            # Verificar si todos los valores son 0 o nulos
+            if all(float(d.get('monto', 0) or 0) == 0 for d in datos):
+                return "No se registraron gastos en el período especificado."
+            return f"Se encontraron {total_registros} registros. Los primeros registros son:\n" + \
+                   json.dumps(datos_muestra, indent=2, default=str, ensure_ascii=False)
+        return f"Se encontraron {total_registros} registros, pero hubo un error al formatear la respuesta."
+
+def extraer_parametros(self, pregunta: str, año: int) -> Dict:
+    """Extrae parámetros estructurados de la pregunta del usuario"""
+    
+    prompt = f"""
+    Analiza esta consulta financiera y extrae los parámetros exactos.
+
+    PREGUNTA: "{pregunta}"
+    AÑO CONTEXTO: {año}
+
+    Extrae ÚNICAMENTE estos parámetros en formato JSON:
+    {{
+        "template": "nombre_del_template_mas_apropiado",
+        "categoria": "categoria_si_se_menciona_o_null",
+        "proveedor": "proveedor_si_se_menciona_o_null",
+        "moneda": "moneda_si_se_menciona_o_null",
+        "fecha_inicio": "YYYY-MM-DD",
+        "fecha_fin": "YYYY-MM-DD", 
+        "termino_busqueda": "termino_si_busca_descripcion_o_null",
+        "limite": 10,
+        "año": {año},
+        "tipo_consulta": "suma|detalle|top|busqueda|mensual|semanal|diario|proveedor|moneda|comparativa"
+    }}
+
+    TEMPLATES DISPONIBLES:
+    - gastos_por_categoria: Para agrupar gastos por categoría
+    - gastos_por_periodo: Para listar gastos en un período
+    - total_gastos_categoria: Para sumar total de una categoría
+    - gastos_mensuales: Para gastos agrupados por mes
+    - top_gastos: Para los gastos más altos
+    - buscar_descripcion: Para buscar por descripción
+    - gastos_por_proveedor: Para agrupar gastos por proveedor
+    - comparativa_mensual: Para comparar gastos entre meses
+    - comparativa_semanal: Para comparar gastos por semanas
+    - comparativa_diaria: Para comparar gastos por días
+    - gastos_por_moneda: Para agrupar gastos por moneda
+    - top_proveedores: Para los proveedores con más gastos
+    - resumen_periodo: Para resumen general de un período
+
+    REGLAS:
+    - Si menciona un mes (marzo, abril, etc), usa ese mes del año {año}
+    - Si no especifica fechas, usa todo el año {año}
+    - Para categorías como "combustible", usa "combustible" (sin tildes ni mayúsculas)
+    - Fechas siempre en formato YYYY-MM-DD
+    - Si pregunta por total/cuanto gastó, usa "total_gastos_categoria"
+    - Si pregunta por detalles/listado, usa "gastos_por_periodo"
+    - SIEMPRE incluye limite con un número, no null
+
+    RESPONDE SOLO EL JSON:
+    """
+    
+    try:
+        response = self.llm.invoke([HumanMessage(content=prompt)])
+        contenido = response.content.strip()
+        
+        # Limpiar respuesta
+        if contenido.startswith('```json'):
+            contenido = contenido[7:-3]
+        elif contenido.startswith('```'):
+            contenido = contenido[3:-3]
+        
+        parametros = json.loads(contenido)
+        
+        # Asegurar que año y limite siempre tengan valores válidos
+        parametros['año'] = año
+        if parametros.get('limite') is None:
+            parametros['limite'] = 10
+            
+        return parametros
+        
+    except Exception as e:
+        print(f"❌ Error extrayendo parámetros: {e}")
+        # Fallback básico
+        return {
+            "template": "total_gastos_categoria",
+            "categoria": "combustible",
+            "fecha_inicio": f"{año}-01-01",
+            "fecha_fin": f"{año}-12-31",
+            "termino_busqueda": None,
+            "limite": 10,
+            "año": año,
+            "tipo_consulta": "suma"
+        }

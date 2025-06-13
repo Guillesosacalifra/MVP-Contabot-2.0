@@ -15,28 +15,48 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from backend.utils import obtener_rango_de_fechas_por_mes
-
 from backend.config import get_carpeta_descarga, get_carpeta_procesados, get_datalogic_credentials
 from backend.etl.xml_parser import descomprimir_archivos_zip_en  # definiremos esto luego
 
-def descargar_y_descomprimir(carpeta, creds):
-
+def descargar_y_descomprimir(carpeta_base, creds_list):
+    """
+    Downloads and decompresses XML files for multiple clients.
+    
+    Args:
+        carpeta_base: Base directory where client folders will be created
+        creds_list: List of client credentials dictionaries
+    """
     mes, anio, fecha_desde, fecha_hasta = obtener_rango_de_fechas_por_mes()
-    empresa = input("📆 Ingresá el nombre de la EMPRESA (ej. NIKE): ").strip().lower()
-
     print(f"📥 Buscando XMLs desde {fecha_desde} hasta {fecha_hasta}...")
     
-    descargar_xml_cfe(
-        carpeta_descarga=carpeta,
-        usuario=creds["usuario"],
-        contrasena=creds["contrasena"],
-        empresa=creds["empresa"],
-        url_login=creds["url_login"],
-        fecha_desde_str=fecha_desde,
-        fecha_hasta_str=fecha_hasta
-    )
-
-    descomprimir_archivos_zip_en(carpeta)
+    for creds in creds_list:
+        client_id = creds["client_id"]
+        empresa_datalogic = creds["empresa"]
+        empresa = input("📆 Ingresá el nombre de la EMPRESA (ej. NIKE): ").strip().lower()
+        # Create client-specific folder
+        carpeta_cliente = os.path.join(carpeta_base, f"cliente_{client_id}_{empresa_datalogic}")
+        os.makedirs(carpeta_cliente, exist_ok=True)
+        
+        print(f"\n🔄 Procesando cliente {client_id} - {empresa_datalogic}")
+        
+        try:
+            descargar_xml_cfe(
+                carpeta_descarga=carpeta_cliente,
+                usuario=creds["usuario"],
+                contrasena=creds["contrasena"],
+                empresa=creds["empresa"],
+                url_login=creds["url_login"],
+                fecha_desde_str=fecha_desde,
+                fecha_hasta_str=fecha_hasta
+            )
+            
+            descomprimir_archivos_zip_en(carpeta_cliente)
+            print(f"✅ Cliente {client_id} - {empresa_datalogic} procesado exitosamente")
+            
+        except Exception as e:
+            print(f"❌ Error procesando cliente {client_id} - {empresa_datalogic}: {str(e)}")
+            continue
+    
     return mes, anio, empresa
 
 def esperar_descarga_completa(carpeta, timeout=60):

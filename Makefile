@@ -30,9 +30,16 @@ subir:
 PY := py
 
 pipeline:
-	set PYTHONPATH=. && $(PY) backend/main.py
+	set PYTHONPATH=. && $(PY) backend/pipeline.py
 
 # Ejecutar comparación con DGI
 comparacion:
 	set PYTHONPATH=. && $(PY) run_comparison.py
 
+# Ejecutar embeddings
+embeddings:
+	set PYTHONPATH=. && $(PY) backend/embeddings.py
+
+# Ejecutar main
+main:
+	set PYTHONPATH=. && $(PY) backend/main.py

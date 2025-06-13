@@ -19,68 +19,92 @@ red de pescadores y los que debo clasificar con IA
 '''
 
 def probar_red_de_pescadores():
+    carpeta_base = get_carpeta_descarga()
+    creds_list = get_datalogic_credentials()
     
-    carpeta = get_carpeta_descarga()
-    creds = get_datalogic_credentials()
-       
-    mes, anio, empresa = descargar_y_descomprimir(carpeta, creds)
-    tabla_nombre = f"{empresa}_{anio}"
-
-    limpiar_xmls_en_carpeta(carpeta)
-
-    df_nuevos = parsear_xmls_en_carpeta("data/datalogic/archivos-XML")
+    # Download and decompress files for all clients
+    mes, anio, empresa = descargar_y_descomprimir(carpeta_base, creds_list)
     
-    historico = obtener_historico(empresa=empresa, años=[2025])
+    # Process each client's data
+    for creds in creds_list:
+        client_id = creds["client_id"]
+        empresa_datalogic = creds["empresa"]
+        carpeta_cliente = os.path.join(carpeta_base, f"cliente_{client_id}_{empresa_datalogic}")
+        
+        print(f"\n\n🔄 Procesando datos para cliente {client_id} - {empresa_datalogic} \n\n")
+        
+        try:
+            # Clean XMLs in client's folder
+            limpiar_xmls_en_carpeta(carpeta_cliente)
+            
+            # Parse XMLs into DataFrame
+            df_nuevos = parsear_xmls_en_carpeta(carpeta_cliente)
+            
+            if df_nuevos.empty:
+                print(f"ℹ️ No hay nuevos datos para procesar para el cliente {client_id}")
+                continue
+                
+            # Get historical data for this client
+            historico = obtener_historico(empresa=empresa, años=[2025])
+            
+            # Apply fisherman's net classification
+            df_verificados, df_no_verificados = aplicar_red_de_pescadores(df_nuevos, historico)
+            
+            # Classify unverified items with AI
+            if not df_no_verificados.empty:
+                print(f"🤖 Clasificando {len(df_no_verificados)} ítems nuevos con IA...")
+                resultados = []
+                df_no_verificados_dict = df_no_verificados.to_dict(orient="records")
+                for lote in tqdm(dividir_en_bloques(df_no_verificados_dict, 100)):
+                    resultados += clasificar_lote(lote)
+                
+                df_clasificacion = pd.DataFrame(resultados)
+                
+                # Merge with controlled suffixes to avoid categoria_x/y
+                df_no_verificados = df_no_verificados.merge(
+                    df_clasificacion, on="rowid", how="left", suffixes=("", "_clasificada")
+                )
+                
+                # Use classified category if present
+                if "categoria_clasificada" in df_no_verificados.columns:
+                    df_no_verificados["categoria"] = df_no_verificados["categoria_clasificada"].fillna(df_no_verificados["categoria"])
+                    df_no_verificados.drop(columns=["categoria_clasificada"], inplace=True)
+            
+            # Ensure columns match before concatenating
+            columnas_comunes = list(set(df_verificados.columns) & set(df_no_verificados.columns))
+            
+            # Filter only common columns
+            df_verificados = df_verificados[columnas_comunes]
+            df_no_verificados = df_no_verificados[columnas_comunes]
+            
+            # Combine verified and AI-classified unverified items
+            df_final = pd.concat([df_verificados, df_no_verificados], ignore_index=True)
+            
+            # Ensure date is in correct format
+            df_final["fecha"] = pd.to_datetime(df_final["fecha"], errors="coerce")
+            
+            # Remove any columns that might cause conflicts
+            columnas_a_eliminar = ["rowid", "id"]
+            for col in columnas_a_eliminar:
+                if col in df_final.columns:
+                    df_final = df_final.drop(columns=[col])
+            
+            # Create table name specific to this client
+            tabla_nombre = f"{empresa}_{anio}"
+            
+            print(f"📊 Total de registros a subir para {empresa_datalogic}: {len(df_final)}")
+            print(f"📊 Registros verificados: {len(df_verificados)}")
+            print(f"📊 Registros no verificados: {len(df_no_verificados)}")
+            
+            # Upload data for this client
+            subir_dataframe(df_final, tabla_nombre)
+            print(f"✅ Datos procesados y subidos para cliente {client_id} - {empresa_datalogic}")
+            
+        except Exception as e:
+            print(f"❌ Error procesando datos para cliente {client_id} - {empresa_datalogic}: {str(e)}")
+            continue
     
-    # Clasificar con red de pescadores
-    df_verificados, df_no_verificados = aplicar_red_de_pescadores(df_nuevos, historico)
-
-    # Clasificar con IA los no verificados
-    if not df_no_verificados.empty:
-        print(f"🤖 Clasificando {len(df_no_verificados)} ítems nuevos con IA...")
-        resultados = []
-        df_no_verificados_dict = df_no_verificados.to_dict(orient="records")
-        for lote in tqdm(dividir_en_bloques(df_no_verificados_dict, 100)):
-            resultados += clasificar_lote(lote)
-
-        df_clasificacion = pd.DataFrame(resultados)
-
-        # Merge con sufijos controlados para evitar categoria_x/y
-        df_no_verificados = df_no_verificados.merge(
-            df_clasificacion, on="rowid", how="left", suffixes=("", "_clasificada")
-        )
-
-        # Usar la categoría clasificada si está presente
-        if "categoria_clasificada" in df_no_verificados.columns:
-            df_no_verificados["categoria"] = df_no_verificados["categoria_clasificada"].fillna(df_no_verificados["categoria"])
-            df_no_verificados.drop(columns=["categoria_clasificada"], inplace=True)
-
-    # Asegurarnos de que las columnas sean las mismas antes de concatenar
-    columnas_comunes = list(set(df_verificados.columns) & set(df_no_verificados.columns))
-    
-    # Filtrar solo las columnas comunes
-    df_verificados = df_verificados[columnas_comunes]
-    df_no_verificados = df_no_verificados[columnas_comunes]
-
-    # Unir los verificados y los no verificados ya clasificados con IA y subir
-    df_final = pd.concat([df_verificados, df_no_verificados], ignore_index=True)
-    
-    # Asegurarnos de que la fecha esté en el formato correcto
-    df_final["fecha"] = pd.to_datetime(df_final["fecha"], errors="coerce")
-    
-    # Eliminar cualquier columna que pueda causar conflictos
-    columnas_a_eliminar = ["rowid", "id"]
-    for col in columnas_a_eliminar:
-        if col in df_final.columns:
-            df_final = df_final.drop(columns=[col])
-
-    print(f"📊 Total de registros a subir: {len(df_final)}")
-    print(f"📊 Registros verificados: {len(df_verificados)}")
-    print(f"📊 Registros no verificados: {len(df_no_verificados)}")
-
-    subir_dataframe(df_final, tabla_nombre)
-
-    print("🎉 Proceso completo.")
+    print("🎉 Proceso completo para todos los clientes.")
     return
 ###################################################################################################
 ''' 
@@ -181,3 +205,8 @@ def procesar_xmls(mes: str, anio: int, tabla_nombre: str, empresa: str):
     
     # Subir a Supabase
     subir_dataframe(df, tabla_nombre, empresa)
+
+
+# Para desarrollo local
+if __name__ == "__main__":
+    probar_red_de_pescadores()

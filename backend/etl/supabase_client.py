@@ -91,7 +91,7 @@ def crear_tabla_si_no_existe(df: pd.DataFrame, nombre_tabla: str):
         elif "bool" in str(tipo):
             columnas_sql.append(f'"{col}" BOOLEAN')
         elif "datetime" in str(tipo):
-            columnas_sql.append(f'"{col}" DATE')  # Solo fecha
+            columnas_sql.append(f'"{col}" DATE')  # Solo fecha y vencimiento
         else:
             columnas_sql.append(f'"{col}" TEXT')
 

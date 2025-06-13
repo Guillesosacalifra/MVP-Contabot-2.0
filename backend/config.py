@@ -29,12 +29,34 @@ def get_carpeta_procesados() -> str:
     return carpeta
 
 def get_datalogic_credentials():
-    return {
-        "url_login": os.getenv("URL_DATALOGIC"),
-        "usuario": os.getenv("USUARIO_DATALOGIC"),
-        "contrasena": os.getenv("CLAVE_DATALOGIC"),
-        "empresa": os.getenv("EMPRESA_DATALOGIC")
-    }
+    """
+    Returns a list of dictionaries containing credentials for each client.
+    Each client's credentials should be defined in .env with a numeric suffix:
+    CLIENT1_URL_DATALOGIC, CLIENT1_USUARIO_DATALOGIC, etc.
+    CLIENT2_URL_DATALOGIC, CLIENT2_USUARIO_DATALOGIC, etc.
+    """
+    clients = []
+    client_num = 1
+    
+    while True:
+        # Check if we have credentials for this client number
+        url = os.getenv(f"CLIENT{client_num}_URL_DATALOGIC")
+        if not url:  # No more clients found
+            break
+            
+        clients.append({
+            "client_id": client_num,
+            "url_login": url,
+            "usuario": os.getenv(f"CLIENT{client_num}_USUARIO_DATALOGIC"),
+            "contrasena": os.getenv(f"CLIENT{client_num}_CLAVE_DATALOGIC"),
+            "empresa": os.getenv(f"CLIENT{client_num}_EMPRESA_DATALOGIC")
+        })
+        client_num += 1
+    
+    if not clients:
+        raise ValueError("No client credentials found in environment variables")
+        
+    return clients
 
 # Locale para español (depende del sistema operativo)
 LOCALE_ES = "es_ES.UTF-8" if os.name != "nt" else "Spanish_Spain"

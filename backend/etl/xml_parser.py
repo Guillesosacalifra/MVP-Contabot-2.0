@@ -96,7 +96,7 @@ def parsear_xmls_en_carpeta(carpeta_descargas: str) -> List[Dict]:
             direccion = root.findtext(".//dgicfe:DomFiscal", "", namespaces=ns)
             ciudad = root.findtext(".//dgicfe:Ciudad", "", namespaces=ns)
             departamento = root.findtext(".//dgicfe:Departamento", "", namespaces=ns)
-
+            vencimiento = root.findtext(".//dgicfe:FecVenc", "", namespaces=ns)
             tipo_moneda = root.findtext(".//dgicfe:TpoMoneda", "UYU", namespaces=ns)
             tipo_cambio_str = root.findtext(".//dgicfe:TpoCambio", "1", namespaces=ns)
             tipo_cambio = float(tipo_cambio_str) if tipo_cambio_str else 1.0
@@ -128,6 +128,7 @@ def parsear_xmls_en_carpeta(carpeta_descargas: str) -> List[Dict]:
                     "tipo_cambio": tipo_cambio,
                     "monto_uyu": monto_uyu,
                     "archivo": archivo,
+                    "vencimiento": vencimiento
                 })
 
             # ✅ Eliminar solo si se parseó correctamente
